@@ -13,7 +13,7 @@ class FinanceService:
         stocks = []
         for _, row in df_stocks.iterrows():
             stock = StockItem(
-                symbol=row.get('Symbol', ''),
+                symbol=row.get('Code', ''),
                 name=row.get('Name', ''),
                 market=market
             )

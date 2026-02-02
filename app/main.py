@@ -1,7 +1,9 @@
-# app/main.py
 from fastapi import FastAPI
+from app.api.endpoints import stocks
 
 app = FastAPI(title="Financial AI Service")
+
+app.include_router(stocks.router, prefix="/api/v1")
 
 @app.get("/")
 def read_root():

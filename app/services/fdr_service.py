@@ -19,7 +19,7 @@ from app.schemas.stock_schemas import (
 logger = logging.getLogger(__name__)
 
 
-class FinanceService:
+class FDRService:
     _executor = ThreadPoolExecutor(max_workers=10)
     _last_call_time = 0
     _lock = Lock()
@@ -28,17 +28,17 @@ class FinanceService:
     @staticmethod
     def _rate_limit():
         # API 호출 속도 제한
-        with FinanceService._lock:
+        with FDRService._lock:
             now = time.time()
-            time_since_last = now - FinanceService._last_call_time
-            if time_since_last < FinanceService._min_interval:
-                time.sleep(FinanceService._min_interval - time_since_last)
-            FinanceService._last_call_time = time.time()
+            time_since_last = now - FDRService._last_call_time
+            if time_since_last < FDRService._min_interval:
+                time.sleep(FDRService._min_interval - time_since_last)
+            FDRService._last_call_time = time.time()
 
     @staticmethod
     def get_stock_list(market: str = 'KRX') -> List[StockItem]:
         try:
-            FinanceService._rate_limit()
+            FDRService._rate_limit()
             df_stocks = fdr.StockListing(market)
 
             stocks = []
@@ -64,12 +64,12 @@ class FinanceService:
             end_date: Optional[str] = None,
             days: int = 30
     ) -> StockDataResponse:
-        start_date, end_date = FinanceService._calculate_date_range(
+        start_date, end_date = FDRService._calculate_date_range(
             start_date, end_date, days
         )
 
         try:
-            FinanceService._rate_limit()
+            FDRService._rate_limit()
             df = fdr.DataReader(symbol, start_date, end_date)
 
             if df.empty:
@@ -131,8 +131,8 @@ class FinanceService:
         # 비동기 태스크
         tasks = [
             loop.run_in_executor(
-                FinanceService._executor,
-                FinanceService.get_stock_data,
+                FDRService._executor,
+                FDRService.get_stock_data,
                 symbol, start_date, end_date, days
             )
             for symbol in symbols
@@ -202,7 +202,29 @@ class FinanceService:
         return start_date, end_date
 
 
+        @staticmethod
+        def get_sector_stocks(sector: str) -> List[str]:
+
+            return # TODO 섹터별 종목 코드 반환
+
+        @staticmethod
+        async def fetch_sector_data(
+                sector: str,
+                period: str = "10Y"
+        ) -> MultipleStockDataResponse:
+            """섹터 전체 종목 데이터 수집"""
+            symbols = SectorService.get_sector_stocks(sector)
+
+            # 10년치 데이터 수집
+            return await FinanceService.get_multiple_stocks(
+                symbols=symbols,
+                period=period
+            )
+
+
+
+
     @classmethod
     def shutdown(cls):
         cls._executor.shutdown(wait=True)
-        logger.info("FinanceService executor shutdown complete")
+        logger.info("FDRService executor shutdown complete")

@@ -1,9 +1,8 @@
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Path, Query
-from pydantic import Field
 
-from app.services.finance_service import FinanceService
+from app.services.fdr_service import FDRService
 from app.schemas.stock_schemas import StockListResponse, StockDataResponse, MultipleStockDataResponse, StockPriceRequest
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
@@ -12,7 +11,7 @@ router = APIRouter(prefix="/stocks", tags=["stocks"])
             summary="전체 종목 리스트 조회")
 async def get_stock_list(market: str = 'KRX'):
     try:
-        stocks = FinanceService.get_stock_list(market)
+        stocks = FDRService.get_stock_list(market)
         return StockListResponse(
             stocks=stocks,
             total_count=len(stocks),
@@ -32,7 +31,7 @@ async def get_stock_data(
         days: Optional[int] = Query(30, description="조회 기간 (일 단위)", example=3, ge=1, le=1825)  # 최대 5년
 ):
     try:
-        stock_data = FinanceService.get_stock_data(
+        stock_data = FDRService.get_stock_data(
             symbol=symbol,
             start_date=start_date,
             end_date=end_date,
@@ -63,7 +62,7 @@ async def get_multiple_stocks(request: StockPriceRequest):
         raise HTTPException(status_code=400, detail="최대 50개 종목까지 가능")
 
     try:
-        result = await FinanceService.get_multiple_stocks(
+        result = await FDRService.get_multiple_stocks(
             symbols=request.symbols,
             start_date=request.start_date,
             end_date=request.end_date,

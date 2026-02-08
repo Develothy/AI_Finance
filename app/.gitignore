@@ -1,0 +1,55 @@
+# ============================================================
+# 퀀트 플랫폼 .gitignore
+# ============================================================
+
+# 환경 설정 (절대 커밋 금지!)
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# 가상환경
+venv/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# 로그
+logs/
+*.log
+
+# 데이터
+data/
+*.db
+*.sqlite
+
+# 모델
+models/
+*.pkl
+*.pt
+*.pth
+*.h5
+
+# 테스트
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/

@@ -1,3 +1,0 @@
-SLACK_TOKEN=test
-SLACK_ENABLED=true
-SLACK_CHANNEL=#alerts

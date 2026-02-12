@@ -159,12 +159,20 @@ class DataPipeline:
         )
 
         try:
+            # market 검증
+            valid_markets = ['KOSPI', 'KOSDAQ', 'NYSE', 'NASDAQ', 'S&P500', 'SP500']
+            if market and market.upper() not in valid_markets:
+                raise DataFetchError(f"알 수 없는 마켓: {market}. 지원: {valid_markets}")
+
             # 1. 종목 코드 결정
             if codes:
                 # 종목 코드가 주어진 경우
                 target_codes = codes
                 # 한국/미국 구분 (첫 번째 코드로 판단)
                 is_kr = target_codes[0].isdigit()
+                # market 지정 안 됐으면 기본값
+                if not market:
+                    market = "KOSPI" if is_kr else "NASDAQ"
 
             elif market:
                 # 마켓이 주어진 경우
@@ -178,8 +186,9 @@ class DataPipeline:
                     raise DataFetchError(f"알 수 없는 마켓: {market}")
 
             else:
-                # 아무것도 없으면 기본값 (한국 전체)
-                target_codes = get_kr_codes()
+                # 아무것도 없으면 기본값 (KOSPI)
+                market = "KOSPI"
+                target_codes = get_kr_codes(market, sector)
                 is_kr = True
 
             result.total_codes = len(target_codes)
@@ -192,7 +201,7 @@ class DataPipeline:
             logger.info(
                 f"종목 코드 {result.total_codes}개 확인",
                 "fetch",
-                {"is_kr": is_kr, "sample": target_codes[:5]}
+                {"market": market, "is_kr": is_kr, "sample": target_codes[:5]}
             )
 
             # 2. 데이터 수집
@@ -206,7 +215,6 @@ class DataPipeline:
                     max_workers=max_workers,
                     show_progress=show_progress
                 )
-                market_type = "KR"
             else:
                 fetch_result = fetch_us_stocks(
                     tickers=target_codes,
@@ -214,7 +222,9 @@ class DataPipeline:
                     end_date=end_date,
                     show_progress=show_progress
                 )
-                market_type = "US"
+
+            # market 값 그대로 DB에 저장 (KOSPI, KOSDAQ, NYSE, NASDAQ)
+            market_type = market.upper()
 
             result.fetch_elapsed = time.perf_counter() - fetch_start
             result.data = fetch_result.success
@@ -258,7 +268,7 @@ class DataPipeline:
 
         Args:
             data: {종목코드: DataFrame} 딕셔너리
-            market: 'KR' 또는 'US'
+            market: 'KOSPI', 'KOSDAQ', 'NYSE', 'NASDAQ'
 
         Returns:
             저장된 레코드 수

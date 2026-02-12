@@ -10,8 +10,6 @@ import pandas as pd
 
 import FinanceDataReader as fdr
 
-import sys
-sys.path.append('..')
 from core import get_logger, retry, DataFetchError
 
 logger = get_logger("stock_code")
@@ -213,7 +211,7 @@ def get_us_codes(
 def get_stock_codes(
         market: Optional[str] = None,
         sector: Optional[str] = None,
-        region: str = 'KR'
+        region: str = 'KOSPI'
 ) -> list[str]:
     """
     종목 코드 리스트 조회 (통합)
@@ -221,15 +219,15 @@ def get_stock_codes(
     Args:
         market: 마켓명
         sector: 섹터명
-        region: 'KR' 또는 'US'
+        region: 'KOSPI', 'KOSDAQ', 'NYSE', 'NASDAQ'
 
     Returns:
         종목 코드 리스트
     """
-    if region.upper() == 'KR':
-        return get_kr_codes(market, sector)
+    if is_korean_market(region):
+        return get_kr_codes(market or region, sector)
     else:
-        return get_us_codes(market, sector)
+        return get_us_codes(market or region, sector)
 
 
 def is_korean_market(market: Optional[str]) -> bool:
@@ -237,7 +235,7 @@ def is_korean_market(market: Optional[str]) -> bool:
     if market is None:
         return True  # 기본값은 한국
 
-    kr_markets = ['KOSPI', 'KOSDAQ', 'KR', 'KOREA']
+    kr_markets = ['KOSPI', 'KOSDAQ']
     return market.upper() in kr_markets
 
 
@@ -246,5 +244,5 @@ def is_us_market(market: Optional[str]) -> bool:
     if market is None:
         return False
 
-    us_markets = ['NYSE', 'NASDAQ', 'S&P500', 'SP500', 'US', 'USA']
+    us_markets = ['NYSE', 'NASDAQ', 'S&P500', 'SP500']
     return market.upper() in us_markets

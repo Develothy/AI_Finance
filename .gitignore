@@ -39,12 +39,12 @@ data/
 *.db
 *.sqlite
 
-# 모델
-models/
+# ML 모델 파일 (코드 아님)
 *.pkl
 *.pt
 *.pth
 *.h5
+*.onnx
 
 # 테스트
 .pytest_cache/
@@ -53,3 +53,6 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Docker
+postgres_data/

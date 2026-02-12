@@ -125,7 +125,7 @@ def collect_data(request: CollectRequest):
 @app.get("/prices/{code}", response_model=list[StockPriceResponse])
 def get_prices(
         code: str,
-        market: str = Query(default="KR", description="KR 또는 US"),
+        market: str = Query(default="KOSPI", description="KOSPI, KOSDAQ, NYSE, NASDAQ"),
         start_date: Optional[str] = Query(default=None),
         end_date: Optional[str] = Query(default=None),
         limit: int = Query(default=100, le=1000)
@@ -134,7 +134,7 @@ def get_prices(
     종목 주가 조회
 
     - code: 종목 코드 (005930, AAPL 등)
-    - market: KR 또는 US
+    - market: KOSPI, KOSDAQ, NYSE, NASDAQ
     - start_date: 시작일 (YYYY-MM-DD)
     - end_date: 종료일 (YYYY-MM-DD)
     - limit: 최대 조회 개수
@@ -168,7 +168,7 @@ def get_prices(
 @app.get("/prices/{code}/latest", response_model=Optional[StockPriceResponse])
 def get_latest_price(
         code: str,
-        market: str = Query(default="KR")
+        market: str = Query(default="KOSPI")
 ):
     """최신 주가 조회"""
     try:
@@ -199,7 +199,7 @@ def get_latest_price(
 @app.delete("/prices/{code}")
 def delete_prices(
         code: str,
-        market: str = Query(default="KR")
+        market: str = Query(default="KOSPI")
 ):
     """종목 주가 삭제"""
     try:

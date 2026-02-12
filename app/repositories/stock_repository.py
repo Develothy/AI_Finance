@@ -28,7 +28,7 @@ class StockRepository:
         주가 데이터 Upsert (Insert or Update)
 
         Args:
-            records: [{"market": "KR", "code": "005930", "date": ..., ...}]
+            records: [{"market": "KOSPI", "code": "005930", "date": ..., ...}]
 
         Returns:
             처리된 레코드 수
@@ -69,7 +69,7 @@ class StockRepository:
     def get_prices(
             self,
             code: str,
-            market: str = "KR",
+            market: str = "KOSPI",
             start_date: Optional[str] = None,
             end_date: Optional[str] = None
     ) -> list[StockPrice]:
@@ -86,14 +86,14 @@ class StockRepository:
 
         return query.order_by(StockPrice.date).all()
 
-    def get_latest_price(self, code: str, market: str = "KR") -> Optional[StockPrice]:
+    def get_latest_price(self, code: str, market: str = "KOSPI") -> Optional[StockPrice]:
         """최신 주가 조회"""
         return self.session.query(StockPrice).filter(
             StockPrice.code == code,
             StockPrice.market == market
         ).order_by(StockPrice.date.desc()).first()
 
-    def delete_prices(self, code: str, market: str = "KR") -> int:
+    def delete_prices(self, code: str, market: str = "KOSPI") -> int:
         """종목 주가 삭제"""
         deleted = self.session.query(StockPrice).filter(
             StockPrice.code == code,

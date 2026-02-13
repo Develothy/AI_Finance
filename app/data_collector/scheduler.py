@@ -15,10 +15,9 @@ try:
 except ImportError:
     SCHEDULER_AVAILABLE = False
 
-import sys
-sys.path.append('..')
 from config import settings
 from core import get_logger
+from db import database
 
 from .pipeline import DataPipeline
 
@@ -35,6 +34,7 @@ class DataScheduler:
         self.scheduler = BackgroundScheduler(
             timezone=settings.SCHEDULER_TIMEZONE
         )
+        database.create_tables()
         self.pipeline = DataPipeline()
         self._jobs = {}
 
@@ -83,6 +83,11 @@ class DataScheduler:
                 market=market,
                 sector=sector
             )
+
+            if result.data:
+                from services import StockService
+                svc = StockService(pipeline=self.pipeline)
+                result.db_saved_count = svc.save_to_db(result.data, result.market)
 
             logger.info(
                 f"스케줄 작업 완료",

@@ -21,9 +21,14 @@ def init_path():
 
 def cmd_collect(args):
     """데이터 수집"""
+    from db import database
+    from models import StockPrice, StockInfo
     from data_collector import DataPipeline
+    from services import StockService
 
+    database.create_tables()
     pipeline = DataPipeline()
+    service = StockService(pipeline=pipeline)
 
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=args.days)).strftime('%Y-%m-%d')
@@ -40,6 +45,9 @@ def cmd_collect(args):
         sector=args.sector,
         codes=args.codes.split(',') if args.codes else None
     )
+
+    if result.data:
+        result.db_saved_count = service.save_to_db(result.data, result.market)
 
     print("-" * 50)
     print(f"결과: {result.message}")

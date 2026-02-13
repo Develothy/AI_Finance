@@ -2,7 +2,7 @@
 데이터 수집 파이프라인
 ===================
 
-한국/미국 주식 데이터 통합 수집 및 DB 저장
+한국/미국 주식 데이터 통합 수집
 
 Usage:
     from data_collector import DataPipeline
@@ -32,11 +32,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from config import settings
-from db import database
-from models import StockPrice
-from repositories import StockRepository
-from core import get_logger, log_execution, handle_exception, DataFetchError
+from core import get_logger, log_execution, DataFetchError
 
 from data_collector.stock_codes import (
     get_kr_codes,
@@ -44,8 +40,8 @@ from data_collector.stock_codes import (
     is_korean_market,
     is_us_market
 )
-from data_collector.kr_fetcher import fetch_kr_stocks, FetchResult as KRFetchResult
-from data_collector.us_fetcher import fetch_us_stocks, FetchResult as USFetchResult
+from data_collector.kr_fetcher import fetch_kr_stocks
+from data_collector.us_fetcher import fetch_us_stocks
 
 logger = get_logger("pipeline")
 
@@ -56,6 +52,7 @@ class PipelineResult:
 
     # 수집 결과
     data: dict[str, pd.DataFrame] = field(default_factory=dict)
+    market: str = ""
 
     # 통계
     total_codes: int = 0
@@ -99,14 +96,7 @@ class PipelineResult:
 class DataPipeline:
     """데이터 수집 파이프라인"""
 
-    def __init__(self, init_db: bool = True):
-        """
-        Args:
-            init_db: DB 테이블 자동 생성 여부
-        """
-        if init_db:
-            database.create_tables()
-
+    def __init__(self):
         logger.info("DataPipeline 초기화 완료", "__init__")
 
     @log_execution(module="pipeline")
@@ -117,7 +107,6 @@ class DataPipeline:
             codes: Optional[list[str]] = None,
             market: Optional[str] = None,
             sector: Optional[str] = None,
-            save_to_db: bool = True,
             max_workers: int = 8,
             show_progress: bool = True
     ) -> PipelineResult:
@@ -130,7 +119,6 @@ class DataPipeline:
             codes: 종목 코드 리스트 (옵션)
             market: 마켓 - KOSPI, KOSDAQ, NYSE, NASDAQ, S&P500 (옵션)
             sector: 섹터명 (옵션)
-            save_to_db: DB 저장 여부
             max_workers: 병렬 작업 수 (한국 주식)
             show_progress: 진행률 표시
 
@@ -223,8 +211,7 @@ class DataPipeline:
                     show_progress=show_progress
                 )
 
-            # market 값 그대로 DB에 저장 (KOSPI, KOSDAQ, NYSE, NASDAQ)
-            market_type = market.upper()
+            result.market = market.upper()
 
             result.fetch_elapsed = time.perf_counter() - fetch_start
             result.data = fetch_result.success
@@ -232,13 +219,7 @@ class DataPipeline:
             result.failed_count = fetch_result.failed_count
             result.failed_codes = fetch_result.failed
 
-            # 3. DB 저장
-            if save_to_db and result.data:
-                save_start = time.perf_counter()
-                result.db_saved_count = self._save_to_db(result.data, market_type)
-                result.save_elapsed = time.perf_counter() - save_start
-
-            # 4. 결과 정리
+            # 3. 결과 정리
             result.total_elapsed = time.perf_counter() - start_time
             result.success = result.success_rate >= 50
             result.message = f"수집 완료: {result.success_count}/{result.total_codes} 성공"
@@ -261,97 +242,6 @@ class DataPipeline:
             )
 
         return result
-
-    def _save_to_db(self, data: dict[str, pd.DataFrame], market: str) -> int:
-        """
-        데이터 DB 저장
-
-        Args:
-            data: {종목코드: DataFrame} 딕셔너리
-            market: 'KOSPI', 'KOSDAQ', 'NYSE', 'NASDAQ'
-
-        Returns:
-            저장된 레코드 수
-        """
-        total_saved = 0
-
-        try:
-            with database.session() as session:
-                repo = StockRepository(session)
-
-                for code, df in data.items():
-                    try:
-                        records = self._df_to_records(df, code, market)
-                        if records:
-                            repo.upsert_prices(records)
-                            total_saved += len(records)
-
-                    except Exception as e:
-                        logger.error(
-                            f"종목 저장 실패",
-                            "_save_to_db",
-                            {"code": code, "error": str(e)}
-                        )
-
-            logger.info(
-                f"DB 저장 완료",
-                "_save_to_db",
-                {"market": market, "codes": len(data), "records": total_saved}
-            )
-
-        except Exception as e:
-            logger.critical(
-                f"DB 저장 실패",
-                "_save_to_db",
-                {"error": str(e)}
-            )
-            raise
-
-        return total_saved
-
-    def _df_to_records(
-            self,
-            df: pd.DataFrame,
-            code: str,
-            market: str
-    ) -> list[dict]:
-        """DataFrame을 DB 레코드로 변환"""
-        records = []
-
-        for _, row in df.iterrows():
-            try:
-                # date 컬럼 처리
-                dt = row.get('date')
-                if dt is None:
-                    continue
-
-                if isinstance(dt, str):
-                    dt = datetime.strptime(dt, '%Y-%m-%d').date()
-                elif isinstance(dt, datetime):
-                    dt = dt.date()
-                elif isinstance(dt, pd.Timestamp):
-                    dt = dt.date()
-
-                record = {
-                    'market': market,
-                    'code': code,
-                    'date': dt,
-                    'open': float(row.get('open', 0)) if pd.notna(row.get('open')) else None,
-                    'high': float(row.get('high', 0)) if pd.notna(row.get('high')) else None,
-                    'low': float(row.get('low', 0)) if pd.notna(row.get('low')) else None,
-                    'close': float(row.get('close', 0)) if pd.notna(row.get('close')) else None,
-                    'volume': int(row.get('volume', 0)) if pd.notna(row.get('volume')) else None,
-                }
-                records.append(record)
-
-            except Exception as e:
-                logger.debug(
-                    f"레코드 변환 실패",
-                    "_df_to_records",
-                    {"code": code, "error": str(e)}
-                )
-
-        return records
 
     def fetch_kr(
             self,

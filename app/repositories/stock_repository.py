@@ -20,6 +20,30 @@ class StockRepository:
         self.session = session
 
     # ============================================================
+    # Upsert 헬퍼
+    # ============================================================
+
+    def _upsert(self, model, records, constraint, index_elements, update_fields, extra_set=None) -> int:
+        if not records:
+            return 0
+
+        if settings.DB_TYPE == "postgresql":
+            stmt = pg_insert(model).values(records)
+            set_ = {col: getattr(stmt.excluded, col) for col in update_fields}
+            if extra_set:
+                set_.update(extra_set)
+            stmt = stmt.on_conflict_do_update(constraint=constraint, set_=set_)
+        else:
+            stmt = sqlite_insert(model).values(records)
+            set_ = {col: getattr(stmt.excluded, col) for col in update_fields}
+            if extra_set:
+                set_.update(extra_set)
+            stmt = stmt.on_conflict_do_update(index_elements=index_elements, set_=set_)
+
+        self.session.execute(stmt)
+        return len(records)
+
+    # ============================================================
     # StockPrice
     # ============================================================
 
@@ -33,38 +57,12 @@ class StockRepository:
         Returns:
             처리된 레코드 수
         """
-        if not records:
-            return 0
-
-        if settings.DB_TYPE == "postgresql":
-            stmt = pg_insert(StockPrice).values(records)
-            stmt = stmt.on_conflict_do_update(
-                constraint='uq_stock_price',
-                set_={
-                    'open': stmt.excluded.open,
-                    'high': stmt.excluded.high,
-                    'low': stmt.excluded.low,
-                    'close': stmt.excluded.close,
-                    'volume': stmt.excluded.volume,
-                    'created_at': datetime.now()
-                }
-            )
-        else:
-            stmt = sqlite_insert(StockPrice).values(records)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['market', 'code', 'date'],
-                set_={
-                    'open': stmt.excluded.open,
-                    'high': stmt.excluded.high,
-                    'low': stmt.excluded.low,
-                    'close': stmt.excluded.close,
-                    'volume': stmt.excluded.volume,
-                    'created_at': datetime.now()
-                }
-            )
-
-        self.session.execute(stmt)
-        return len(records)
+        return self._upsert(
+            StockPrice, records, 'uq_stock_price',
+            ['market', 'code', 'date'],
+            ['open', 'high', 'low', 'close', 'volume'],
+            extra_set={'created_at': datetime.now()}
+        )
 
     def get_prices(
             self,
@@ -107,34 +105,12 @@ class StockRepository:
 
     def upsert_info(self, records: list[dict]) -> int:
         """종목 정보 Upsert"""
-        if not records:
-            return 0
-
-        if settings.DB_TYPE == "postgresql":
-            stmt = pg_insert(StockInfo).values(records)
-            stmt = stmt.on_conflict_do_update(
-                constraint='uq_stock_info',
-                set_={
-                    'name': stmt.excluded.name,
-                    'sector': stmt.excluded.sector,
-                    'industry': stmt.excluded.industry,
-                    'updated_at': datetime.now()
-                }
-            )
-        else:
-            stmt = sqlite_insert(StockInfo).values(records)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['market', 'code'],
-                set_={
-                    'name': stmt.excluded.name,
-                    'sector': stmt.excluded.sector,
-                    'industry': stmt.excluded.industry,
-                    'updated_at': datetime.now()
-                }
-            )
-
-        self.session.execute(stmt)
-        return len(records)
+        return self._upsert(
+            StockInfo, records, 'uq_stock_info',
+            ['market', 'code'],
+            ['name', 'sector', 'industry'],
+            extra_set={'updated_at': datetime.now()}
+        )
 
     def get_info(self, code: str, market: str) -> Optional[StockInfo]:
         """종목 정보 조회"""

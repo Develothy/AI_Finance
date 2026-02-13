@@ -6,15 +6,12 @@ yfinance 일괄 수집
 """
 
 import time
-from typing import Optional
 from dataclasses import dataclass, field
 
 import pandas as pd
 import yfinance as yf
 
-import sys
-sys.path.append('..')
-from core import get_logger, DataFetchError
+from core import get_logger, retry
 
 logger = get_logger("us_fetcher")
 
@@ -34,6 +31,19 @@ class FetchResult:
         if self.total_count == 0:
             return 0.0
         return self.success_count / self.total_count * 100
+
+
+@retry(max_attempts=3, delay=2.0, backoff=2.0, module="us_fetcher")
+def _download_with_retry(tickers, start_date, end_date, show_progress):
+    """yfinance 다운로드 (재시도는 @retry 데코레이터가 처리)"""
+    return yf.download(
+        tickers,
+        start=start_date,
+        end=end_date,
+        group_by='ticker',
+        progress=show_progress,
+        threads=True
+    )
 
 
 def fetch_us_stocks(
@@ -69,14 +79,7 @@ def fetch_us_stocks(
 
     try:
         # yfinance 일괄 다운로드 (내부적으로 병렬 처리)
-        raw_data = yf.download(
-            tickers,
-            start=start_date,
-            end=end_date,
-            group_by='ticker',
-            progress=show_progress,
-            threads=True
-        )
+        raw_data = _download_with_retry(tickers, start_date, end_date, show_progress)
 
         # 단일 종목인 경우 처리
         if len(tickers) == 1:

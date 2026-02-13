@@ -6,7 +6,6 @@ FinanceDataReader + ThreadPoolExecutor 병렬 처리
 """
 
 import time
-from datetime import datetime
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -15,10 +14,7 @@ import pandas as pd
 import FinanceDataReader as fdr
 from tqdm import tqdm
 
-import sys
-sys.path.append('..')
-from config import settings
-from core import get_logger, DataFetchError, APIConnectionError
+from core import get_logger, retry, DataFetchError
 
 logger = get_logger("kr_fetcher")
 
@@ -40,12 +36,19 @@ class FetchResult:
         return self.success_count / self.total_count * 100
 
 
+@retry(max_attempts=3, delay=1.0, backoff=2.0, module="kr_fetcher")
+def _fetch_with_retry(code: str, start_date: str, end_date: str) -> pd.DataFrame:
+    """FDR 호출 (재시도는 @retry 데코레이터가 처리)"""
+    df = fdr.DataReader(code, start_date, end_date)
+    if df is None or df.empty:
+        raise DataFetchError(f"데이터 없음: {code}")
+    return df
+
+
 def fetch_single_stock(
         code: str,
         start_date: str,
         end_date: str,
-        retries: int = 3,
-        retry_delay: float = 1.0
 ) -> tuple[str, Optional[pd.DataFrame]]:
     """
     단일 종목 데이터 수집 (재시도 포함)
@@ -54,61 +57,40 @@ def fetch_single_stock(
         code: 종목 코드
         start_date: 시작일 (YYYY-MM-DD)
         end_date: 종료일 (YYYY-MM-DD)
-        retries: 재시도 횟수
-        retry_delay: 재시도 대기 시간
 
     Returns:
         (종목코드, DataFrame 또는 None)
     """
-    for attempt in range(1, retries + 1):
-        try:
-            df = fdr.DataReader(code, start_date, end_date)
+    try:
+        df = _fetch_with_retry(code, start_date, end_date)
 
-            if df is None or df.empty:
-                logger.warning(
-                    f"데이터 없음",
-                    "fetch_single_stock",
-                    {"code": code, "start": start_date, "end": end_date}
-                )
-                return code, None
+        # 컬럼 정리
+        df = df.reset_index()
+        df.columns = [c.lower() for c in df.columns]
 
-            # 컬럼 정리
-            df = df.reset_index()
-            df.columns = [c.lower() for c in df.columns]
+        # 필요한 컬럼만
+        required_cols = ['date', 'open', 'high', 'low', 'close', 'volume']
+        for col in required_cols:
+            if col not in df.columns:
+                # 대체 컬럼명 시도
+                alt_names = {
+                    'date': ['Date', 'index'],
+                    'volume': ['Volume', 'vol']
+                }
+                for alt in alt_names.get(col, []):
+                    if alt in df.columns:
+                        df = df.rename(columns={alt: col})
+                        break
 
-            # 필요한 컬럼만
-            required_cols = ['date', 'open', 'high', 'low', 'close', 'volume']
-            for col in required_cols:
-                if col not in df.columns:
-                    # 대체 컬럼명 시도
-                    alt_names = {
-                        'date': ['Date', 'index'],
-                        'volume': ['Volume', 'vol']
-                    }
-                    for alt in alt_names.get(col, []):
-                        if alt in df.columns:
-                            df = df.rename(columns={alt: col})
-                            break
+        return code, df
 
-            return code, df
-
-        except Exception as e:
-            if attempt < retries:
-                logger.debug(
-                    f"재시도 {attempt}/{retries}",
-                    "fetch_single_stock",
-                    {"code": code, "error": str(e)}
-                )
-                time.sleep(retry_delay)
-            else:
-                logger.warning(
-                    f"수집 실패",
-                    "fetch_single_stock",
-                    {"code": code, "error": str(e), "attempts": retries}
-                )
-                return code, None
-
-    return code, None
+    except Exception as e:
+        logger.warning(
+            f"수집 실패",
+            "fetch_single_stock",
+            {"code": code, "error": str(e)}
+        )
+        return code, None
 
 
 def fetch_kr_stocks(
@@ -116,7 +98,6 @@ def fetch_kr_stocks(
         start_date: str,
         end_date: str,
         max_workers: int = 8,
-        retries: int = 3,
         show_progress: bool = True
 ) -> FetchResult:
     """
@@ -127,7 +108,6 @@ def fetch_kr_stocks(
         start_date: 시작일 (YYYY-MM-DD)
         end_date: 종료일 (YYYY-MM-DD)
         max_workers: 동시 작업 수
-        retries: 재시도 횟수
         show_progress: 진행률 표시
 
     Returns:
@@ -151,7 +131,7 @@ def fetch_kr_stocks(
         # 작업 제출
         futures = {
             executor.submit(
-                fetch_single_stock, code, start_date, end_date, retries
+                fetch_single_stock, code, start_date, end_date
             ): code
             for code in codes
         }

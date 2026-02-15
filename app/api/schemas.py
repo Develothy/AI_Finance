@@ -76,3 +76,60 @@ class StockInfoResponse(BaseModel):
             sector=s.sector,
             industry=s.industry,
         )
+
+
+# ============================================================
+# 기술적 지표 Response
+# ============================================================
+
+class SMAResponse(BaseModel):
+    date: str
+    close: float
+    sma: Optional[float] = None
+
+
+class EMAResponse(BaseModel):
+    date: str
+    close: float
+    ema: Optional[float] = None
+
+
+class RSIResponse(BaseModel):
+    date: str
+    close: float
+    rsi: Optional[float] = None
+
+
+class MACDResponse(BaseModel):
+    date: str
+    close: float
+    macd: Optional[float] = None
+    signal: Optional[float] = None
+    histogram: Optional[float] = None
+
+
+class BollingerResponse(BaseModel):
+    date: str
+    close: float
+    upper: Optional[float] = None
+    middle: Optional[float] = None
+    lower: Optional[float] = None
+
+
+class OBVResponse(BaseModel):
+    date: str
+    close: float
+    volume: int
+    obv: Optional[float] = None
+
+
+class IndicatorSummaryResponse(BaseModel):
+    code: str
+    market: str
+    period: str
+    sma_20: list[SMAResponse]
+    ema_20: list[EMAResponse]
+    rsi_14: list[RSIResponse]
+    macd: list[MACDResponse]
+    bollinger: list[BollingerResponse]
+    obv: list[OBVResponse]

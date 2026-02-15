@@ -116,7 +116,7 @@ def get_us_stock_list(market: Optional[str] = None) -> pd.DataFrame:
     미국 주식 종목 리스트 조회
 
     Args:
-        market: 'NYSE', 'NASDAQ', 'S&P500', None(S&P500 기본)
+        market: 'NYSE', 'NASDAQ', 'S&P500', None(S&P500 default)
 
     Returns:
         DataFrame with columns: code, name, sector, industry
@@ -127,7 +127,7 @@ def get_us_stock_list(market: Optional[str] = None) -> pd.DataFrame:
         elif market and market.upper() == 'NASDAQ':
             df = fdr.StockListing('NASDAQ')
         else:
-            # 기본: S&P500
+            # default: S&P500
             df = fdr.StockListing('S&P500')
 
         # 컬럼 정리
@@ -193,7 +193,7 @@ def get_us_codes(
     미국 종목 코드 리스트 조회
 
     Args:
-        market: 'NYSE', 'NASDAQ', 'S&P500', None(S&P500 기본)
+        market: 'NYSE', 'NASDAQ', 'S&P500', None(S&P500 default)
         sector: 섹터명 (부분 매칭)
 
     Returns:
@@ -233,7 +233,7 @@ def get_stock_codes(
 def is_korean_market(market: Optional[str]) -> bool:
     """한국 마켓인지 확인"""
     if market is None:
-        return True  # 기본값은 한국
+        return True  # default값은 한국
 
     kr_markets = ['KOSPI', 'KOSDAQ']
     return market.upper() in kr_markets

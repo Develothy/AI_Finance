@@ -2,11 +2,20 @@
 API Request/Response 스키마
 """
 
+from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel
 
 from models import StockPrice, StockInfo
+
+
+class Market(str, Enum):
+    """지원 마켓"""
+    KOSPI = "KOSPI"
+    KOSDAQ = "KOSDAQ"
+    NYSE = "NYSE"
+    NASDAQ = "NASDAQ"
 
 
 # ============================================================

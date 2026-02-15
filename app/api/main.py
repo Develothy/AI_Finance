@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routes import stock_router
+from api.routes import stock_router, indicator_router
 
 logger = logging.getLogger("api")
 
@@ -39,6 +39,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # 라우터 등록
 app.include_router(stock_router)
+app.include_router(indicator_router)
 
 
 @app.get("/")

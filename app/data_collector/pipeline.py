@@ -158,7 +158,7 @@ class DataPipeline:
                 target_codes = codes
                 # 한국/미국 구분 (첫 번째 코드로 판단)
                 is_kr = target_codes[0].isdigit()
-                # market 지정 안 됐으면 기본값
+                # market 지정 안 됐으면 default값
                 if not market:
                     market = "KOSPI" if is_kr else "NASDAQ"
 
@@ -174,7 +174,7 @@ class DataPipeline:
                     raise DataFetchError(f"알 수 없는 마켓: {market}")
 
             else:
-                # 아무것도 없으면 기본값 (KOSPI)
+                # 아무것도 없으면 default값 (KOSPI)
                 market = "KOSPI"
                 target_codes = get_kr_codes(market, sector)
                 is_kr = True

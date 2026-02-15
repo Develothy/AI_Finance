@@ -4,9 +4,10 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from api.schemas import (
+    Market,
     SMAResponse,
     EMAResponse,
     RSIResponse,
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/indicators", tags=["기술적 지표"])
 @router.get("/sma/{code}", response_model=list[SMAResponse])
 def get_sma(
     code: str,
-    market: str = Query(default="KOSPI", description="KOSPI, KOSDAQ, NYSE, NASDAQ"),
+    market: Market = Query(default=Market.KOSPI),
     period: int = Query(default=20, ge=2, description="이동평균 기간"),
     start_date: Optional[str] = Query(default=None, description="시작일 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(default=None, description="종료일 (YYYY-MM-DD)"),
@@ -39,7 +40,7 @@ def get_sma(
 @router.get("/ema/{code}", response_model=list[EMAResponse])
 def get_ema(
     code: str,
-    market: str = Query(default="KOSPI", description="KOSPI, KOSDAQ, NYSE, NASDAQ"),
+    market: Market = Query(default=Market.KOSPI),
     period: int = Query(default=20, ge=2, description="이동평균 기간"),
     start_date: Optional[str] = Query(default=None, description="시작일 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(default=None, description="종료일 (YYYY-MM-DD)"),
@@ -55,7 +56,7 @@ def get_ema(
 @router.get("/rsi/{code}", response_model=list[RSIResponse])
 def get_rsi(
     code: str,
-    market: str = Query(default="KOSPI", description="KOSPI, KOSDAQ, NYSE, NASDAQ"),
+    market: Market = Query(default=Market.KOSPI),
     period: int = Query(default=14, ge=2, description="RSI 기간"),
     start_date: Optional[str] = Query(default=None, description="시작일 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(default=None, description="종료일 (YYYY-MM-DD)"),
@@ -72,7 +73,7 @@ def get_rsi(
 @router.get("/macd/{code}", response_model=list[MACDResponse])
 def get_macd(
     code: str,
-    market: str = Query(default="KOSPI", description="KOSPI, KOSDAQ, NYSE, NASDAQ"),
+    market: Market = Query(default=Market.KOSPI),
     fast: int = Query(default=12, ge=2, description="단기 EMA 기간"),
     slow: int = Query(default=26, ge=2, description="장기 EMA 기간"),
     signal: int = Query(default=9, ge=2, description="시그널 라인 기간"),
@@ -86,13 +87,18 @@ def get_macd(
     - signal: MACD의 EMA
     - histogram: MACD - Signal (양수: 상승 모멘텀)
     """
+    if fast >= slow:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fast({fast})는 slow({slow})보다 작아야 합니다",
+        )
     return indicator_service.get_macd(code, market, fast, slow, signal, start_date, end_date)
 
 
 @router.get("/bollinger/{code}", response_model=list[BollingerResponse])
 def get_bollinger(
     code: str,
-    market: str = Query(default="KOSPI", description="KOSPI, KOSDAQ, NYSE, NASDAQ"),
+    market: Market = Query(default=Market.KOSPI),
     period: int = Query(default=20, ge=2, description="이동평균 기간"),
     num_std: float = Query(default=2.0, gt=0, description="표준편차 배수"),
     start_date: Optional[str] = Query(default=None, description="시작일 (YYYY-MM-DD)"),
@@ -111,7 +117,7 @@ def get_bollinger(
 @router.get("/obv/{code}", response_model=list[OBVResponse])
 def get_obv(
     code: str,
-    market: str = Query(default="KOSPI", description="KOSPI, KOSDAQ, NYSE, NASDAQ"),
+    market: Market = Query(default=Market.KOSPI),
     start_date: Optional[str] = Query(default=None, description="시작일 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(default=None, description="종료일 (YYYY-MM-DD)"),
 ):
@@ -127,13 +133,15 @@ def get_obv(
 @router.get("/summary/{code}", response_model=IndicatorSummaryResponse)
 def get_summary(
     code: str,
-    market: str = Query(default="KOSPI", description="KOSPI, KOSDAQ, NYSE, NASDAQ"),
+    market: Market = Query(default=Market.KOSPI),
     start_date: Optional[str] = Query(default=None, description="시작일 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(default=None, description="종료일 (YYYY-MM-DD)"),
+    limit: Optional[int] = Query(default=None, ge=1, description="최근 N건만 반환 (미지정 시 전체)"),
 ):
     """
     전체 기술적 지표 요약
 
     SMA(20), EMA(20), RSI(14), MACD(12,26,9), 볼린저밴드(20,2), OBV를 한번에 조회.
+    limit을 지정하면 각 지표의 최근 N건만 반환합니다.
     """
-    return indicator_service.get_summary(code, market, start_date, end_date)
+    return indicator_service.get_summary(code, market, start_date, end_date, limit)

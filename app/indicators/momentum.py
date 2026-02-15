@@ -27,9 +27,20 @@ def calc_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
 
-    rs = avg_gain / avg_loss
-    result['rsi'] = 100 - (100 / (1 + rs))
-    result['rsi'] = result['rsi'].replace([np.inf, -np.inf], np.nan)
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+
+    # avg_loss=0 (연속 상승) → RSI=100, avg_gain=0 (연속 하락) → RSI=0
+    # 둘 다 0 (변동 없음) → RSI=50
+    both_zero = (avg_gain == 0) & (avg_loss == 0)
+    only_loss_zero = (avg_gain > 0) & (avg_loss == 0)
+    only_gain_zero = (avg_gain == 0) & (avg_loss > 0)
+
+    rsi = rsi.where(~only_loss_zero, 100.0)
+    rsi = rsi.where(~only_gain_zero, 0.0)
+    rsi = rsi.where(~both_zero, 50.0)
+
+    result['rsi'] = rsi
 
     return result
 

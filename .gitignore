@@ -54,5 +54,8 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
+# 문서
+docs/
+
 # Docker
 postgres_data/

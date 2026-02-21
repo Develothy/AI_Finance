@@ -129,6 +129,28 @@ class StockService:
 
         return total_saved
 
+    # ── 종목 정보 저장 ──────────────────────────────────────────
+
+    def _save_stock_info(self, records: list[dict]) -> int:
+        """종목 메타데이터(이름, 섹터, 산업) DB 저장"""
+        try:
+            with self.database.session() as session:
+                repo = StockRepository(session)
+                saved = repo.upsert_info(records)
+                logger.info(
+                    "종목 정보 저장 완료",
+                    "_save_stock_info",
+                    {"count": saved}
+                )
+                return saved
+        except Exception as e:
+            logger.error(
+                "종목 정보 저장 실패",
+                "_save_stock_info",
+                {"error": str(e)}
+            )
+            return 0
+
     # ── 데이터 수집 ──────────────────────────────────────────
 
     @log_execution(module="service")
@@ -150,6 +172,9 @@ class StockService:
 
         if result.data:
             result.db_saved_count = self.save_to_db(result.data, result.market)
+
+        if result.stock_info:
+            self._save_stock_info(result.stock_info)
 
         return CollectResponse(
             success=result.success,
@@ -229,6 +254,17 @@ class StockService:
             repo = StockRepository(session)
             deleted = repo.delete_prices(code, market)
             return {"deleted": deleted, "code": code, "market": market}
+
+    # ── 종목 정보 조회 ──────────────────────────────────────
+
+    @log_execution(module="service")
+    def get_stock_info(self, code: str, market: str) -> Optional[StockInfoResponse]:
+        with self.database.session() as session:
+            repo = StockRepository(session)
+            info = repo.get_info_by_code(code, market)
+            if not info:
+                return None
+            return StockInfoResponse.from_model(info)
 
     # ── 종목 조회 (섹터) ─────────────────────────────────────
 

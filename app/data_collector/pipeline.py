@@ -37,8 +37,12 @@ from core import get_logger, log_execution, DataFetchError
 from data_collector.stock_codes import (
     get_kr_codes,
     get_us_codes,
+    get_kr_stock_list,
+    get_us_stock_list,
+    filter_kr_stocks_by_sector,
+    filter_us_stocks_by_sector,
     is_korean_market,
-    is_us_market
+    is_us_market,
 )
 from data_collector.kr_fetcher import fetch_kr_stocks
 from data_collector.us_fetcher import fetch_us_stocks
@@ -52,6 +56,7 @@ class PipelineResult:
 
     # 수집 결과
     data: dict[str, pd.DataFrame] = field(default_factory=dict)
+    stock_info: list[dict] = field(default_factory=list)
     market: str = ""
 
     # 통계
@@ -153,6 +158,8 @@ class DataPipeline:
                 raise DataFetchError(f"알 수 없는 마켓: {market}. 지원: {valid_markets}")
 
             # 1. 종목 코드 결정
+            stock_listing_df = None
+
             if codes:
                 # 종목 코드가 주어진 경우
                 target_codes = codes
@@ -161,14 +168,29 @@ class DataPipeline:
                 # market 지정 안 됐으면 default값
                 if not market:
                     market = "KOSPI" if is_kr else "NASDAQ"
+                # 종목 메타데이터 조회
+                try:
+                    if is_kr:
+                        listing = get_kr_stock_list(market)
+                    else:
+                        listing = get_us_stock_list(market)
+                    stock_listing_df = listing[listing['code'].isin(codes)]
+                except Exception as e:
+                    logger.warning(f"종목 메타데이터 조회 실패: {e}", "fetch")
 
             elif market:
                 # 마켓이 주어진 경우
                 if is_korean_market(market):
-                    target_codes = get_kr_codes(market, sector)
+                    listing = get_kr_stock_list(market)
+                    filtered = filter_kr_stocks_by_sector(listing, sector)
+                    target_codes = filtered['code'].tolist()
+                    stock_listing_df = filtered
                     is_kr = True
                 elif is_us_market(market):
-                    target_codes = get_us_codes(market, sector)
+                    listing = get_us_stock_list(market)
+                    filtered = filter_us_stocks_by_sector(listing, sector)
+                    target_codes = filtered['code'].tolist()
+                    stock_listing_df = filtered
                     is_kr = False
                 else:
                     raise DataFetchError(f"알 수 없는 마켓: {market}")
@@ -176,8 +198,24 @@ class DataPipeline:
             else:
                 # 아무것도 없으면 default값 (KOSPI)
                 market = "KOSPI"
-                target_codes = get_kr_codes(market, sector)
+                listing = get_kr_stock_list(market)
+                filtered = filter_kr_stocks_by_sector(listing, sector)
+                target_codes = filtered['code'].tolist()
+                stock_listing_df = filtered
                 is_kr = True
+
+            # 종목 메타데이터 저장
+            if stock_listing_df is not None and not stock_listing_df.empty:
+                info_records = []
+                for _, row in stock_listing_df.iterrows():
+                    info_records.append({
+                        'market': market.upper(),
+                        'code': row.get('code', ''),
+                        'name': row.get('name'),
+                        'sector': row.get('sector'),
+                        'industry': row.get('industry'),
+                    })
+                result.stock_info = info_records
 
             result.total_codes = len(target_codes)
 

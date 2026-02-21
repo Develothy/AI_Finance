@@ -126,6 +126,13 @@ class StockRepository:
             query = query.filter(StockInfo.market == market)
         return [row[0] for row in query.all()]
 
+    def get_info_by_code(self, code: str, market: str = "KOSPI") -> Optional[StockInfo]:
+        """종목코드로 종목 정보 조회"""
+        return self.session.query(StockInfo).filter(
+            StockInfo.code == code,
+            StockInfo.market == market,
+        ).first()
+
     def get_by_sector(self, sector: str, market: Optional[str] = None) -> list[StockInfo]:
         """섹터별 종목 조회"""
         query = self.session.query(StockInfo).filter(

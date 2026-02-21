@@ -31,13 +31,8 @@ def get_kr_stock_list(market: Optional[str] = None) -> pd.DataFrame:
         DataFrame with columns: Code, Name, Market, Sector, Industry
     """
     try:
-        if market and market.upper() in ['KOSPI', 'KOSDAQ']:
-            df = fdr.StockListing(market.upper())
-        else:
-            # 전체 조회
-            kospi = fdr.StockListing('KOSPI')
-            kosdaq = fdr.StockListing('KOSDAQ')
-            df = pd.concat([kospi, kosdaq], ignore_index=True)
+        # KRX-DESC에서 섹터/산업 정보 포함 조회
+        df = fdr.StockListing('KRX-DESC')
 
         # 컬럼 정리
         df = df.rename(columns={
@@ -47,6 +42,10 @@ def get_kr_stock_list(market: Optional[str] = None) -> pd.DataFrame:
             'Sector': 'sector',
             'Industry': 'industry'
         })
+
+        # 마켓 필터
+        if market and market.upper() in ['KOSPI', 'KOSDAQ']:
+            df = df[df['market'] == market.upper()]
 
         # 필요한 컬럼만 선택
         cols = ['code', 'name', 'market', 'sector', 'industry']

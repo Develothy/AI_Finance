@@ -4,7 +4,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from api.schemas import (
     CollectRequest,
@@ -14,7 +14,7 @@ from api.schemas import (
 )
 from services import stock_service
 
-router = APIRouter()
+router = APIRouter(prefix="/stocks", tags=["주식 데이터"])
 
 
 @router.post("/collect", response_model=CollectResponse)
@@ -77,6 +77,18 @@ def delete_prices(
 ):
     """종목 주가 삭제"""
     return stock_service.delete_prices(code, market)
+
+
+@router.get("/info/{code}", response_model=StockInfoResponse)
+def get_stock_info(
+    code: str,
+    market: str = Query(default="KOSPI", description="KOSPI, KOSDAQ, NYSE, NASDAQ"),
+):
+    """종목 정보 조회 (이름, 섹터, 산업)"""
+    info = stock_service.get_stock_info(code, market)
+    if not info:
+        raise HTTPException(status_code=404, detail=f"종목 정보 없음: {code}")
+    return info
 
 
 @router.get("/stocks/sector/{sector}", response_model=list[StockInfoResponse])

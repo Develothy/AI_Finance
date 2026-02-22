@@ -65,18 +65,17 @@ def cmd_scheduler(args):
         print("pip install apscheduler")
         return
 
-    scheduler = DataScheduler()
+    scheduler = DataScheduler.get_instance()
 
-    # 한국 주식: 매일 18:00
-    scheduler.add_kr_daily_job(hour=18, minute=0)
+    # DB에 등록된 스케줄 로드
+    loaded = scheduler.load_jobs_from_db()
 
-    # 미국 주식: 매일 07:00
-    scheduler.add_us_daily_job(hour=7, minute=0)
+    if not scheduler.get_jobs():
+        print("등록된 스케줄이 없습니다. 어드민에서 추가해주세요.")
 
-    print("스케줄러 시작")
-    print("등록된 작업:")
+    print(f"\n스케줄러 시작 (등록된 작업: {len(scheduler.get_jobs())}개)")
     for job in scheduler.get_jobs():
-        print(f"  - {job['id']}: {job['next_run']}")
+        print(f"  - {job['id']}: 다음 실행 {job['next_run']}")
     print("-" * 50)
     print("Ctrl+C로 종료")
 

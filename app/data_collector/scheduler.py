@@ -2,7 +2,7 @@
 데이터 수집 스케줄러
 =================
 
-매일 자동 실행
+크론식 기반 자동 실행
 """
 
 from datetime import datetime, timedelta
@@ -24,8 +24,58 @@ from .pipeline import DataPipeline
 logger = get_logger("scheduler")
 
 
+def parse_cron_expr(cron_expr: str) -> CronTrigger:
+    """
+    크론식을 APScheduler CronTrigger로 변환
+
+    지원 형식:
+        5필드: 분 시 일 월 요일          (표준 crontab)
+        6필드: 초 분 시 일 월 요일        (Quartz 스타일)
+
+    예시:
+        "0 18 * * *"     → 매일 18:00
+        "*/10 * * * *"   → 10분마다
+        "0 */6 * * *"    → 6시간마다
+        "0 18 */7 * *"   → 7일마다 18:00
+        "0 0 18 * * *"   → 매일 18:00 (6필드, 초=0)
+        "0 */10 * * * *" → 10분마다 (6필드, 초=0)
+    """
+    parts = cron_expr.strip().split()
+
+    if len(parts) == 5:
+        # 표준 crontab: 분 시 일 월 요일
+        return CronTrigger.from_crontab(cron_expr, timezone=settings.SCHEDULER_TIMEZONE)
+
+    elif len(parts) == 6:
+        # Quartz 스타일: 초 분 시 일 월 요일
+        second, minute, hour, day, month, day_of_week = parts
+        # '?' → '*' 변환 (Quartz 호환)
+        day_of_week = day_of_week.replace("?", "*")
+        day = day.replace("?", "*")
+        return CronTrigger(
+            second=second,
+            minute=minute,
+            hour=hour,
+            day=day,
+            month=month,
+            day_of_week=day_of_week,
+            timezone=settings.SCHEDULER_TIMEZONE,
+        )
+
+    raise ValueError(f"잘못된 크론식: '{cron_expr}' (5 또는 6필드)")
+
+
 class DataScheduler:
     """데이터 수집 스케줄러"""
+
+    _instance: "DataScheduler | None" = None
+
+    @classmethod
+    def get_instance(cls) -> "DataScheduler":
+        # 싱글톤 인스턴스 반환 (API 서버와 공유)
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
 
     def __init__(self):
         if not SCHEDULER_AVAILABLE:
@@ -40,87 +90,131 @@ class DataScheduler:
 
         logger.info("DataScheduler 초기화 완료", "__init__")
 
-    def add_daily_job(
+    def load_jobs_from_db(self):
+        """DB에서 enabled 스케줄을 읽어 APScheduler에 등록"""
+        from models import ScheduleJob
+
+        with database.session() as session:
+            jobs = session.query(ScheduleJob).filter(ScheduleJob.enabled == True).all()
+            loaded = 0
+            for job_model in jobs:
+                try:
+                    self.add_job_from_model(job_model)
+                    loaded += 1
+                except Exception as e:
+                    logger.warning(f"잡 등록 실패: {job_model.job_name} - {e}", "load_jobs_from_db")
+
+        logger.info(f"DB에서 {loaded}개 잡 로드 완료", "load_jobs_from_db")
+        return loaded
+
+    def add_cron_job(
             self,
             job_id: str,
-            hour: int = None,
-            minute: int = None,
+            cron_expr: str,
             market: Optional[str] = None,
             sector: Optional[str] = None,
             days_back: int = 7,
             callback: Optional[Callable] = None
     ):
         """
-        일별 수집 작업 추가
+        크론식 기반 수집 작업 추가
 
         Args:
             job_id: 작업 ID
-            hour: 실행 시각 (시)
-            minute: 실행 시각 (분)
+            cron_expr: 크론 표현식 (5필드 또는 6필드)
             market: 마켓
             sector: 섹터
             days_back: 수집 기간 (오늘 기준 N일 전부터)
             callback: 완료 후 콜백 함수
         """
-        if hour is None:
-            hour = settings.DATA_FETCH_HOUR
-        if minute is None:
-            minute = settings.DATA_FETCH_MINUTE
-
         def job_func():
+            from models import ScheduleJob, ScheduleLog
+
             logger.info(
                 f"스케줄 작업 시작",
-                "daily_job",
-                {"job_id": job_id, "market": market, "sector": sector}
+                "cron_job",
+                {"job_id": job_id, "market": market, "sector": sector, "cron": cron_expr}
             )
 
-            end_date = datetime.now().strftime('%Y-%m-%d')
-            start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+            # 실행 이력 생성
+            log_id = None
+            with database.session() as session:
+                job_row = session.query(ScheduleJob).filter(ScheduleJob.job_name == job_id).first()
+                if job_row:
+                    log = ScheduleLog(job_id=job_row.id, started_at=datetime.now(), status="running", trigger_by="scheduler")
+                    session.add(log)
+                    session.flush()
+                    log_id = log.id
 
-            result = self.pipeline.fetch(
-                start_date=start_date,
-                end_date=end_date,
-                market=market,
-                sector=sector
-            )
+            try:
+                end_date = datetime.now().strftime('%Y-%m-%d')
+                start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
-            if result.data:
-                from services import StockService
-                svc = StockService(pipeline=self.pipeline)
-                result.db_saved_count = svc.save_to_db(result.data, result.market)
+                result = self.pipeline.fetch(
+                    start_date=start_date,
+                    end_date=end_date,
+                    market=market,
+                    sector=sector
+                )
 
-            logger.info(
-                f"스케줄 작업 완료",
-                "daily_job",
-                {"job_id": job_id, "result": result.to_dict()}
-            )
+                if result.data or result.stock_info:
+                    from services import StockService
+                    svc = StockService(pipeline=self.pipeline)
+                    if result.data:
+                        result.db_saved_count = svc.save_to_db(result.data, result.market)
+                    if result.stock_info:
+                        svc._save_stock_info(result.stock_info)
+
+                # 실행 이력 업데이트 (성공)
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "success" if result.success else "failed"
+                            log_entry.total_codes = result.total_codes
+                            log_entry.success_count = result.success_count
+                            log_entry.failed_count = result.failed_count
+                            log_entry.db_saved_count = result.db_saved_count
+                            log_entry.message = result.message
+
+                logger.info(
+                    f"스케줄 작업 완료",
+                    "cron_job",
+                    {"job_id": job_id, "result": result.to_dict()}
+                )
+
+            except Exception as e:
+                # 실행 이력 업데이트 (실패)
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "failed"
+                            log_entry.message = str(e)[:500]
+
+                logger.error(f"스케줄 작업 실패", "cron_job", {"job_id": job_id, "error": str(e)})
 
             if callback:
                 callback(result)
 
-        trigger = CronTrigger(
-            hour=hour,
-            minute=minute,
-            timezone=settings.SCHEDULER_TIMEZONE
-        )
+        trigger = parse_cron_expr(cron_expr)
 
         job = self.scheduler.add_job(
             job_func,
             trigger=trigger,
             id=job_id,
-            replace_existing=True
+            replace_existing=True,
+            max_instances=1,
         )
 
         self._jobs[job_id] = job
 
         logger.info(
             f"스케줄 작업 등록",
-            "add_daily_job",
-            {
-                "job_id": job_id,
-                "time": f"{hour:02d}:{minute:02d}",
-                "market": market
-            }
+            "add_cron_job",
+            {"job_id": job_id, "cron_expr": cron_expr, "market": market}
         )
 
     def add_kr_daily_job(
@@ -131,10 +225,11 @@ class DataScheduler:
             sector: str = None
     ):
         """한국 주식 일별 수집 작업"""
-        self.add_daily_job(
+        h = hour if hour is not None else settings.DATA_FETCH_HOUR
+        m = minute if minute is not None else settings.DATA_FETCH_MINUTE
+        self.add_cron_job(
             job_id="kr_daily",
-            hour=hour,
-            minute=minute,
+            cron_expr=f"{m} {h} * * *",
             market=market or "KOSPI",
             sector=sector
         )
@@ -147,16 +242,23 @@ class DataScheduler:
             sector: str = None
     ):
         """미국 주식 일별 수집 작업"""
-        # 미국은 한국 시간 기준 아침에 수집 (장 마감 후)
-        if hour is None:
-            hour = 7  # 한국 시간 오전 7시
-
-        self.add_daily_job(
+        h = hour if hour is not None else 7  # 한국 시간 오전 7시
+        m = minute if minute is not None else 0
+        self.add_cron_job(
             job_id="us_daily",
-            hour=hour,
-            minute=minute or 0,
+            cron_expr=f"{m} {h} * * *",
             market=market or "S&P500",
             sector=sector
+        )
+
+    def add_job_from_model(self, job_model):
+        """DB ScheduleJob 모델에서 작업 등록"""
+        self.add_cron_job(
+            job_id=job_model.job_name,
+            cron_expr=job_model.cron_expr,
+            market=job_model.market,
+            sector=job_model.sector,
+            days_back=job_model.days_back,
         )
 
     def remove_job(self, job_id: str):

@@ -43,5 +43,35 @@ services:
       - ./app/logs:/app/logs
     restart: unless-stopped
 
+  # 사용자 대시보드
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: quant_dashboard
+    depends_on:
+      - app
+    environment:
+      - API_BASE_URL=http://app:8000
+    ports:
+      - "8501:8501"
+    command: ["streamlit", "run", "dashboard/app.py", "--server.port", "8501", "--server.headless", "true"]
+    restart: unless-stopped
+
+  # 관리자 대시보드
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: quant_admin
+    depends_on:
+      - app
+    environment:
+      - API_BASE_URL=http://app:8000
+    ports:
+      - "8502:8502"
+    command: ["streamlit", "run", "admin/app.py", "--server.port", "8502", "--server.headless", "true"]
+    restart: unless-stopped
+
 volumes:
   postgres_data:

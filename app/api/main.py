@@ -3,19 +3,44 @@
 """
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routes import stock_router, indicator_router
+from api.routes import stock_router, indicator_router, admin_router
+from db import database
+import models  # noqa: F401 — ModelBase에 모든 모델 등록
 
 logger = logging.getLogger("api")
+
+# 앱 시작 시 테이블 자동 생성
+database.create_tables()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 시작/종료 시 스케줄러 관리"""
+    from data_collector import DataScheduler, SCHEDULER_AVAILABLE
+
+    if SCHEDULER_AVAILABLE:
+        scheduler = DataScheduler.get_instance()
+        scheduler.load_jobs_from_db()
+        scheduler.start()
+        logger.info("스케줄러 시작 (API 서버 내장)")
+    yield
+    if SCHEDULER_AVAILABLE:
+        scheduler = DataScheduler.get_instance()
+        scheduler.stop()
+        logger.info("스케줄러 종료")
+
 
 app = FastAPI(
     title="퀀트 플랫폼 API",
     description="주식 데이터 수집 및 조회 API",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS 설정
@@ -40,6 +65,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # 라우터 등록
 app.include_router(stock_router)
 app.include_router(indicator_router)
+app.include_router(admin_router)
 
 
 @app.get("/")

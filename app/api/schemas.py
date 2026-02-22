@@ -5,7 +5,7 @@ API Request/Response 스키마
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from models import StockPrice, StockInfo
 
@@ -142,3 +142,120 @@ class IndicatorSummaryResponse(BaseModel):
     macd: list[MACDResponse]
     bollinger: list[BollingerResponse]
     obv: list[OBVResponse]
+
+
+# ============================================================
+# 어드민 스키마
+# ============================================================
+
+class HealthResponse(BaseModel):
+    status: str
+    uptime_seconds: float
+    started_at: str
+    version: str
+    python_version: str
+    db_type: str
+
+
+class TableStats(BaseModel):
+    row_count: int
+    earliest_date: Optional[str] = None
+    latest_date: Optional[str] = None
+    markets: list[str] = []
+    code_count: Optional[int] = None
+    sector_count: Optional[int] = None
+
+
+class DBResponse(BaseModel):
+    connected: bool
+    db_type: str
+    error: Optional[str] = None
+    tables: Optional[dict[str, TableStats]] = None
+
+
+class LogEntry(BaseModel):
+    time: str
+    level: str
+    module: str
+    function: str
+    message: str
+
+
+class LogResponse(BaseModel):
+    file: str
+    total: int
+    entries: list[LogEntry]
+
+
+class ConfigGroup(BaseModel):
+    items: dict[str, str]
+
+
+class ConfigResponse(BaseModel):
+    warnings: list[str]
+    groups: dict[str, ConfigGroup]
+
+
+class ScheduleJobRequest(BaseModel):
+    job_name: str
+    market: str
+    sector: Optional[str] = None
+    cron_expr: str  # 크론식: "0 18 * * *" (5필드) 또는 "0 0 18 * * *" (6필드, 초 포함)
+    days_back: int = 7
+    enabled: bool = True
+    description: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_cron(self):
+        parts = self.cron_expr.strip().split()
+        if len(parts) not in (5, 6):
+            raise ValueError(
+                "cron_expr은 5필드(분 시 일 월 요일) 또는 6필드(초 분 시 일 월 요일) 형식이어야 합니다. "
+                "예: '0 18 * * *', '0 0 18 * * *', '*/10 * * * *'"
+            )
+        return self
+
+
+class ScheduleJobResponse(BaseModel):
+    id: int
+    job_name: str
+    market: str
+    sector: Optional[str]
+    cron_expr: str
+    days_back: int
+    enabled: bool
+    description: Optional[str]
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    next_run_time: Optional[str] = None
+
+    @classmethod
+    def from_model(cls, job, next_run: Optional[str] = None):
+        return cls(
+            id=job.id,
+            job_name=job.job_name,
+            market=job.market,
+            sector=job.sector,
+            cron_expr=job.cron_expr,
+            days_back=job.days_back,
+            enabled=job.enabled,
+            description=job.description,
+            created_at=job.created_at.strftime("%Y-%m-%d %H:%M:%S") if job.created_at else None,
+            updated_at=job.updated_at.strftime("%Y-%m-%d %H:%M:%S") if job.updated_at else None,
+            next_run_time=next_run,
+        )
+
+
+class ScheduleLogResponse(BaseModel):
+    id: int
+    job_id: int
+    job_name: Optional[str] = None
+    started_at: str
+    finished_at: Optional[str]
+    status: str
+    total_codes: int
+    success_count: int
+    failed_count: int
+    db_saved_count: int
+    trigger_by: str
+    message: Optional[str]

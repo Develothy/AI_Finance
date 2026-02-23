@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routes import stock_router, indicator_router, admin_router
+from api.routes import stock_router, indicator_router, admin_router, ml_router
 from db import database
 import models  # noqa: F401 — ModelBase에 모든 모델 등록
 
@@ -66,6 +66,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(stock_router)
 app.include_router(indicator_router)
 app.include_router(admin_router)
+app.include_router(ml_router)
 
 
 @app.get("/")

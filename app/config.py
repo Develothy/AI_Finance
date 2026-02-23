@@ -63,10 +63,20 @@ class _Settings:
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"
 
+    # DART (재무제표)
+    DART_API_KEY: Optional[str] = None
+
+    # FRED (거시지표)
+    FRED_API_KEY: Optional[str] = None
+
     # 스케줄러
     SCHEDULER_TIMEZONE: str = "Asia/Seoul"
     DATA_FETCH_HOUR: int = 18
     DATA_FETCH_MINUTE: int = 0
+
+    # ML
+    ML_OPTUNA_TRIALS: int = 50
+    ML_SAVED_MODELS_DIR: str = "saved_models"
 
     @property
     def is_production(self) -> bool:

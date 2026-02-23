@@ -259,3 +259,113 @@ class ScheduleLogResponse(BaseModel):
     db_saved_count: int
     trigger_by: str
     message: Optional[str]
+
+
+# ============================================================
+# ML 스키마
+# ============================================================
+
+class MLFeatureComputeRequest(BaseModel):
+    market: str = "KOSPI"
+    code: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+
+class MLFeatureComputeResponse(BaseModel):
+    market: str
+    code: Optional[str] = None
+    saved_count: Optional[int] = None
+    total: Optional[int] = None
+    success: Optional[int] = None
+    failed: Optional[int] = None
+
+
+class MLTrainRequest(BaseModel):
+    market: str = "KOSPI"
+    algorithm: str = "random_forest"  # random_forest / xgboost / lightgbm
+    target_column: str = "target_class_1d"  # target_class_1d / target_class_5d
+    optuna_trials: int = 50
+
+    @model_validator(mode="after")
+    def validate_algorithm(self):
+        valid_algorithms = {"random_forest", "xgboost", "lightgbm"}
+        if self.algorithm not in valid_algorithms:
+            raise ValueError(f"algorithm은 {valid_algorithms} 중 하나여야 합니다")
+        valid_targets = {"target_class_1d", "target_class_5d"}
+        if self.target_column not in valid_targets:
+            raise ValueError(f"target_column은 {valid_targets} 중 하나여야 합니다")
+        return self
+
+
+class MLTrainResponse(BaseModel):
+    success: bool
+    model_id: int
+    model_name: str
+    metrics: dict
+
+
+class MLModelResponse(BaseModel):
+    id: int
+    model_name: str
+    model_type: str
+    algorithm: str
+    market: str
+    target_column: str
+    train_start_date: Optional[str] = None
+    train_end_date: Optional[str] = None
+    train_sample_count: Optional[int] = None
+    accuracy: Optional[float] = None
+    precision_score: Optional[float] = None
+    recall: Optional[float] = None
+    f1_score: Optional[float] = None
+    auc_roc: Optional[float] = None
+    is_active: bool
+    version: int
+    created_at: Optional[str] = None
+
+
+class MLTrainingLogItem(BaseModel):
+    id: int
+    algorithm: str
+    status: str
+    train_samples: Optional[int] = None
+    val_samples: Optional[int] = None
+    feature_count: Optional[int] = None
+    optuna_trials: Optional[int] = None
+    best_trial_value: Optional[float] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    metrics: Optional[dict] = None
+
+
+class MLModelDetailResponse(MLModelResponse):
+    training_logs: list[MLTrainingLogItem] = []
+
+
+class MLPredictionItem(BaseModel):
+    id: Optional[int] = None
+    model_id: int
+    model_name: Optional[str] = None
+    algorithm: Optional[str] = None
+    market: Optional[str] = None
+    code: Optional[str] = None
+    prediction_date: Optional[str] = None
+    target_date: Optional[str] = None
+    predicted_class: Optional[int] = None
+    probability_up: Optional[float] = None
+    probability_down: Optional[float] = None
+    signal: Optional[str] = None
+    confidence: Optional[float] = None
+    created_at: Optional[str] = None
+
+
+class MLPredictResponse(BaseModel):
+    code: str
+    market: str
+    predictions: list[MLPredictionItem]
+
+
+class MLFeatureImportanceResponse(BaseModel):
+    model_id: int
+    features: dict[str, float]

@@ -186,6 +186,47 @@ class StockService:
             elapsed_seconds=round(result.total_elapsed, 2),
         )
 
+    # ── 스케줄 즉시 실행 ─────────────────────────────────────
+
+    def run_schedule_job(self, log_id: int, market: str, sector: Optional[str], days_back: int):
+        """
+        스케줄 잡을 실행하고 ScheduleLog를 업데이트.
+        백그라운드 스레드에서 호출되므로 내부에서 세션을 직접 관리한다.
+        """
+        from models import ScheduleLog
+
+        try:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+
+            req = CollectRequest(
+                market=market,
+                sector=sector,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            result = self.collect(req)
+
+            with self.database.session() as session:
+                log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
+                if log_entry:
+                    log_entry.finished_at = datetime.now()
+                    log_entry.status = "success" if result.success else "failed"
+                    log_entry.total_codes = result.total_codes
+                    log_entry.success_count = result.success_count
+                    log_entry.failed_count = result.failed_count
+                    log_entry.db_saved_count = result.db_saved_count
+                    log_entry.message = result.message
+
+        except Exception as e:
+            logger.error("스케줄 실행 실패", "run_schedule_job", {"log_id": log_id, "error": str(e)})
+            with self.database.session() as session:
+                log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
+                if log_entry:
+                    log_entry.finished_at = datetime.now()
+                    log_entry.status = "failed"
+                    log_entry.message = str(e)[:500]
+
     # ── 주가 조회 (종목) ─────────────────────────────────────
 
     @log_execution(module="service")

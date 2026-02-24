@@ -72,10 +72,17 @@ class DataScheduler:
 
     @classmethod
     def get_instance(cls) -> "DataScheduler":
-        # 싱글톤 인스턴스 반환 (API 서버와 공유)
+        # 싱글톤 인스턴스
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    @classmethod
+    def get_running_instance(cls) -> "DataScheduler | None":
+        # 실행 중인 인스턴스 반환 (없거나 미실행이면 None)
+        if cls._instance is None:
+            return None
+        return cls._instance if cls._instance.scheduler.running else None
 
     def __init__(self):
         if not SCHEDULER_AVAILABLE:
@@ -299,3 +306,28 @@ class DataScheduler:
             logger.info(f"작업 즉시 실행: {job_id}", "run_now")
         else:
             logger.warning(f"작업을 찾을 수 없음: {job_id}", "run_now")
+
+    def get_next_runs(self) -> dict[str, str]:
+        """등록된 잡별 다음 실행 시각 조회"""
+        if not self.scheduler.running:
+            return {}
+        return {
+            job.id: str(job.next_run_time) if job.next_run_time else None
+            for job in self.scheduler.get_jobs()
+        }
+
+    def sync_job(self, job_name: str, action: str = "add", job_model=None):
+        """DB 변경사항을 APScheduler에 즉시 반영"""
+        if not self.scheduler.running:
+            return
+        try:
+            if action == "remove":
+                self.remove_job(job_name)
+            elif action == "add" and job_model and job_model.enabled:
+                self.add_job_from_model(job_model)
+            elif action == "update":
+                self.remove_job(job_name)
+                if job_model and job_model.enabled:
+                    self.add_job_from_model(job_model)
+        except Exception as e:
+            logger.warning(f"스케줄러 동기화 실패 ({action} {job_name}): {e}", "sync_job")

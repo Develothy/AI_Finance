@@ -4,6 +4,7 @@
 
 import platform
 import re
+import threading
 import time
 from collections import deque
 from datetime import datetime
@@ -28,6 +29,7 @@ from api.schemas import (
 from config import settings
 from core import get_logger
 from db import database
+from data_collector import DataScheduler, SCHEDULER_AVAILABLE
 from models import StockPrice, StockInfo, ScheduleJob, ScheduleLog
 
 logger = get_logger("admin")
@@ -220,55 +222,17 @@ def get_config():
 # 스케줄러 엔드포인트
 # ============================================================
 
-def _get_scheduler_next_runs() -> dict[str, str]:
-    """APScheduler에서 next_run_time 조회"""
-    try:
-        from data_collector import DataScheduler, SCHEDULER_AVAILABLE
-        if not SCHEDULER_AVAILABLE:
-            return {}
-        scheduler = DataScheduler.get_instance()
-        if not scheduler.scheduler.running:
-            return {}
-        runs = {}
-        for job in scheduler.scheduler.get_jobs():
-            runs[job.id] = str(job.next_run_time) if job.next_run_time else None
-        return runs
-    except Exception:
-        return {}
-
-
 @router.get("/scheduler/jobs", response_model=list[ScheduleJobResponse])
 def list_schedule_jobs():
     """등록된 스케줄 목록"""
     with database.session() as session:
         jobs = session.query(ScheduleJob).order_by(ScheduleJob.id).all()
-        next_runs = _get_scheduler_next_runs()
+        scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
+        next_runs = scheduler.get_next_runs() if scheduler else {}
         return [
             ScheduleJobResponse.from_model(j, next_runs.get(j.job_name))
             for j in jobs
         ]
-
-
-def _sync_scheduler(job_name: str, action: str = "add", job_model=None):
-    """APScheduler에 즉시 반영"""
-    try:
-        from data_collector import DataScheduler, SCHEDULER_AVAILABLE
-        if not SCHEDULER_AVAILABLE:
-            return
-        scheduler = DataScheduler.get_instance()
-        if not scheduler.scheduler.running:
-            return
-
-        if action == "remove":
-            scheduler.remove_job(job_name)
-        elif action == "add" and job_model and job_model.enabled:
-            scheduler.add_job_from_model(job_model)
-        elif action == "update":
-            scheduler.remove_job(job_name)
-            if job_model and job_model.enabled:
-                scheduler.add_job_from_model(job_model)
-    except Exception as e:
-        logger.warning(f"스케줄러 동기화 실패 ({action} {job_name}): {e}")
 
 
 @router.post("/scheduler/jobs", response_model=ScheduleJobResponse)
@@ -292,7 +256,9 @@ def create_schedule_job(req: ScheduleJobRequest):
         )
         session.add(job)
         session.flush()
-        _sync_scheduler(job.job_name, "add", job)
+        scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
+        if scheduler:
+            scheduler.sync_job(job.job_name, "add", job)
         return ScheduleJobResponse.from_model(job)
 
 
@@ -325,8 +291,10 @@ def update_schedule_job(job_id: int, req: ScheduleJobRequest):
         session.flush()
 
         # 이전 잡 제거 → 새 설정으로 등록
-        _sync_scheduler(old_job_name, "remove")
-        _sync_scheduler(job.job_name, "add", job)
+        scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
+        if scheduler:
+            scheduler.sync_job(old_job_name, "remove")
+            scheduler.sync_job(job.job_name, "add", job)
         return ScheduleJobResponse.from_model(job)
 
 
@@ -339,17 +307,24 @@ def delete_schedule_job(job_id: int):
             raise HTTPException(status_code=404, detail=f"스케줄 없음: id={job_id}")
         job_name = job.job_name
         session.delete(job)
-    _sync_scheduler(job_name, "remove")
+    scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
+    if scheduler:
+        scheduler.sync_job(job_name, "remove")
     return {"deleted": True, "id": job_id, "job_name": job_name}
 
 
 @router.post("/scheduler/jobs/{job_id}/run")
 def run_schedule_job(job_id: int):
-    """스케줄 즉시 실행"""
+    """스케줄 즉시 실행 (백그라운드)"""
     with database.session() as session:
         job = session.query(ScheduleJob).filter(ScheduleJob.id == job_id).first()
         if not job:
             raise HTTPException(status_code=404, detail=f"스케줄 없음: id={job_id}")
+
+        # 세션 안에서 값 추출
+        job_days_back = job.days_back
+        job_market = job.market
+        job_sector = job.sector
 
         # 실행 이력 생성
         log = ScheduleLog(
@@ -361,53 +336,21 @@ def run_schedule_job(job_id: int):
         session.flush()
         log_id = log.id
 
-    # 세션 밖에서 실행 (장시간 소요 가능)
-    try:
-        from datetime import timedelta
-        from data_collector import DataPipeline
-        from services import StockService
+    # 백그라운드 스레드에서 서비스 호출 → 즉시 응답
+    from services import StockService
+    svc = StockService()
+    thread = threading.Thread(
+        target=svc.run_schedule_job,
+        args=(log_id, job_market, job_sector, job_days_back),
+        daemon=True,
+    )
+    thread.start()
 
-        pipeline = DataPipeline()
-        svc = StockService(pipeline=pipeline)
-
-        end_date = datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.now() - timedelta(days=job.days_back)).strftime("%Y-%m-%d")
-
-        from api.schemas import CollectRequest
-        req = CollectRequest(
-            market=job.market,
-            sector=job.sector,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        result = svc.collect(req)
-
-        with database.session() as session:
-            log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
-            if log_entry:
-                log_entry.finished_at = datetime.now()
-                log_entry.status = "success" if result.success else "failed"
-                log_entry.total_codes = result.total_codes
-                log_entry.success_count = result.success_count
-                log_entry.failed_count = result.failed_count
-                log_entry.db_saved_count = result.db_saved_count
-                log_entry.message = result.message
-
-        return {
-            "success": result.success,
-            "log_id": log_id,
-            "message": result.message,
-        }
-
-    except Exception as e:
-        with database.session() as session:
-            log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
-            if log_entry:
-                log_entry.finished_at = datetime.now()
-                log_entry.status = "failed"
-                log_entry.message = str(e)[:500]
-
-        raise HTTPException(status_code=500, detail=f"실행 실패: {e}")
+    return {
+        "success": True,
+        "log_id": log_id,
+        "message": f"실행 시작 (log_id={log_id})",
+    }
 
 
 @router.get("/scheduler/logs", response_model=list[ScheduleLogResponse])

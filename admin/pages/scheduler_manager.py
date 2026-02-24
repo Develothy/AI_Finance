@@ -45,7 +45,7 @@ def render():
             if col5.button("즉시실행", key=f"run_{job['id']}"):
                 try:
                     result = admin_client.run_schedule_job(job["id"])
-                    st.success(f"실행 완료: {result.get('message', '')}")
+                    st.info(f"🚀 {result.get('message', '백그라운드 실행 시작')} — 아래 실행 이력에서 진행상황을 확인하세요.")
                     st.cache_data.clear()
                 except Exception as e:
                     st.error(f"실행 실패: {e}")

@@ -17,7 +17,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from admin.pages import server_status, db_status, log_viewer, config_viewer, scheduler_manager
+from admin.pages import (
+    server_status, db_status, log_viewer, config_viewer, scheduler_manager,
+    ml_train_manager, ml_models, ml_predictions,
+)
 
 PAGES = {
     "서버 상태": server_status,
@@ -25,6 +28,9 @@ PAGES = {
     "로그 조회": log_viewer,
     "설정 확인": config_viewer,
     "스케줄러 관리": scheduler_manager,
+    "ML 학습 관리": ml_train_manager,
+    "ML 모델 결과": ml_models,
+    "ML 예측 테스트": ml_predictions,
 }
 
 st.sidebar.title("퀀트 관리자")

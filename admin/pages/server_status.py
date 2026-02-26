@@ -3,6 +3,7 @@
 import streamlit as st
 
 from admin.api.client import admin_client
+from admin.config import utc_to_kst
 
 
 def render():
@@ -23,7 +24,7 @@ def render():
     col1, col2, col3 = st.columns(3)
     col1.metric("상태", f"{color} {status.upper()}")
     col2.metric("Uptime", f"{data.get('uptime_seconds', 0):,.0f}초")
-    col3.metric("시작 시각", data.get("started_at", "-"))
+    col3.metric("시작 시각", utc_to_kst(data.get("started_at")))
 
     col4, col5, col6 = st.columns(3)
     col4.metric("API 버전", data.get("version", "-"))

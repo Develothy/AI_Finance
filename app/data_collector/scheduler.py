@@ -99,14 +99,20 @@ class DataScheduler:
 
     def load_jobs_from_db(self):
         """DB에서 enabled 스케줄을 읽어 APScheduler에 등록"""
-        from models import ScheduleJob
+        from models import ScheduleJob, MLTrainConfig
 
         with database.session() as session:
             jobs = session.query(ScheduleJob).filter(ScheduleJob.enabled == True).all()
             loaded = 0
             for job_model in jobs:
                 try:
-                    self.add_job_from_model(job_model)
+                    if job_model.job_type == "ml_train":
+                        config = session.query(MLTrainConfig).filter(
+                            MLTrainConfig.job_id == job_model.id
+                        ).first()
+                        self.add_ml_train_job(job_model, config)
+                    else:
+                        self.add_job_from_model(job_model)
                     loaded += 1
                 except Exception as e:
                     logger.warning(f"잡 등록 실패: {job_model.job_name} - {e}", "load_jobs_from_db")
@@ -258,6 +264,88 @@ class DataScheduler:
             sector=sector
         )
 
+    def add_ml_train_job(self, job_model, config):
+        """ML 학습 크론 잡 등록
+
+        Args:
+            job_model: ScheduleJob 모델
+            config: MLTrainConfig 모델 (markets, algorithms, target_days 등)
+        """
+        from ml.training_scheduler import run_training_schedule
+
+        job_name = job_model.job_name
+        cron_expr = job_model.cron_expr
+
+        # config에서 ML 전용 설정 추출 (세션 밖에서 사용하기 위해 값 복사)
+        markets = config.get_markets() if config else ["KOSPI", "KOSDAQ"]
+        algorithms = config.get_algorithms() if config else None
+        target_days = config.get_target_days() if config else None
+        include_feature = config.include_feature_compute if config else True
+        optuna_trials = config.optuna_trials if config else 50
+
+        def ml_job_func():
+            from models import ScheduleJob as SJ, ScheduleLog
+
+            logger.info(f"ML 학습 스케줄 시작", "ml_cron_job",
+                        {"job_id": job_name, "markets": markets})
+
+            # 실행 이력 생성
+            log_id = None
+            with database.session() as session:
+                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
+                if job_row:
+                    log = ScheduleLog(
+                        job_id=job_row.id,
+                        started_at=datetime.now(),
+                        status="running",
+                        trigger_by="scheduler",
+                    )
+                    session.add(log)
+                    session.flush()
+                    log_id = log.id
+
+            try:
+                result = run_training_schedule(
+                    markets=markets,
+                    algorithms=algorithms,
+                    target_days=target_days,
+                    include_feature_compute=include_feature,
+                    optuna_trials=optuna_trials,
+                )
+
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "success" if result["failed"] == 0 else "partial"
+                            log_entry.success_count = result["trained"]
+                            log_entry.failed_count = result["failed"]
+                            log_entry.message = result.get("summary", "")[:500]
+
+            except Exception as e:
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "failed"
+                            log_entry.message = str(e)[:500]
+                logger.error(f"ML 학습 스케줄 실패", "ml_cron_job", {"error": str(e)})
+
+        trigger = parse_cron_expr(cron_expr)
+        job = self.scheduler.add_job(
+            ml_job_func, trigger=trigger, id=job_name,
+            replace_existing=True, max_instances=1,
+        )
+        self._jobs[job_name] = job
+        logger.info(f"ML 학습 스케줄 등록", "add_ml_train_job",
+                    {"job_id": job_name, "markets": markets})
+
     def add_job_from_model(self, job_model):
         """DB ScheduleJob 모델에서 작업 등록"""
         self.add_cron_job(
@@ -316,7 +404,7 @@ class DataScheduler:
             for job in self.scheduler.get_jobs()
         }
 
-    def sync_job(self, job_name: str, action: str = "add", job_model=None):
+    def sync_job(self, job_name: str, action: str = "add", job_model=None, ml_config=None):
         """DB 변경사항을 APScheduler에 즉시 반영"""
         if not self.scheduler.running:
             return
@@ -324,10 +412,16 @@ class DataScheduler:
             if action == "remove":
                 self.remove_job(job_name)
             elif action == "add" and job_model and job_model.enabled:
-                self.add_job_from_model(job_model)
+                if getattr(job_model, "job_type", "data_collect") == "ml_train":
+                    self.add_ml_train_job(job_model, ml_config)
+                else:
+                    self.add_job_from_model(job_model)
             elif action == "update":
                 self.remove_job(job_name)
                 if job_model and job_model.enabled:
-                    self.add_job_from_model(job_model)
+                    if getattr(job_model, "job_type", "data_collect") == "ml_train":
+                        self.add_ml_train_job(job_model, ml_config)
+                    else:
+                        self.add_job_from_model(job_model)
         except Exception as e:
             logger.warning(f"스케줄러 동기화 실패 ({action} {job_name}): {e}", "sync_job")

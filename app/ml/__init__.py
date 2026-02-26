@@ -6,10 +6,12 @@ from .feature_engineer import FeatureEngineer
 from .trainer import ModelTrainer
 from .predictor import Predictor
 from .signal_generator import generate_signal
+from .training_scheduler import run_training_schedule
 
 __all__ = [
     "FeatureEngineer",
     "ModelTrainer",
     "Predictor",
     "generate_signal",
+    "run_training_schedule",
 ]

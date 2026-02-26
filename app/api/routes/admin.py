@@ -30,7 +30,7 @@ from config import settings
 from core import get_logger
 from db import database
 from data_collector import DataScheduler, SCHEDULER_AVAILABLE
-from models import StockPrice, StockInfo, ScheduleJob, ScheduleLog
+from models import StockPrice, StockInfo, ScheduleJob, ScheduleLog, MLTrainConfig
 
 logger = get_logger("admin")
 
@@ -237,7 +237,7 @@ def list_schedule_jobs():
 
 @router.post("/scheduler/jobs", response_model=ScheduleJobResponse)
 def create_schedule_job(req: ScheduleJobRequest):
-    """스케줄 추가"""
+    """스케줄 추가 (데이터 수집 / ML 학습 통합)"""
     with database.session() as session:
         exists = session.query(ScheduleJob).filter(
             ScheduleJob.job_name == req.job_name
@@ -247,6 +247,7 @@ def create_schedule_job(req: ScheduleJobRequest):
 
         job = ScheduleJob(
             job_name=req.job_name,
+            job_type=req.job_type,
             market=req.market,
             sector=req.sector,
             cron_expr=req.cron_expr,
@@ -256,9 +257,25 @@ def create_schedule_job(req: ScheduleJobRequest):
         )
         session.add(job)
         session.flush()
+
+        # ML 학습인 경우 전용 설정 테이블에 저장
+        ml_config = None
+        if req.job_type == "ml_train":
+            import json
+            ml_config = MLTrainConfig(
+                job_id=job.id,
+                markets=json.dumps(req.ml_markets),
+                algorithms=json.dumps(req.ml_algorithms),
+                target_days=json.dumps(req.ml_target_days),
+                include_feature_compute=req.ml_include_feature_compute,
+                optuna_trials=req.ml_optuna_trials,
+            )
+            session.add(ml_config)
+            session.flush()
+
         scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
         if scheduler:
-            scheduler.sync_job(job.job_name, "add", job)
+            scheduler.sync_job(job.job_name, "add", job, ml_config=ml_config)
         return ScheduleJobResponse.from_model(job)
 
 
@@ -282,6 +299,7 @@ def update_schedule_job(job_id: int, req: ScheduleJobRequest):
                 raise HTTPException(status_code=409, detail=f"이미 존재하는 job_name: {req.job_name}")
 
         job.job_name = req.job_name
+        job.job_type = req.job_type
         job.market = req.market
         job.sector = req.sector
         job.cron_expr = req.cron_expr
@@ -290,11 +308,36 @@ def update_schedule_job(job_id: int, req: ScheduleJobRequest):
         job.description = req.description
         session.flush()
 
+        # ML 학습 설정 업데이트
+        ml_config = None
+        if req.job_type == "ml_train":
+            import json
+            ml_config = session.query(MLTrainConfig).filter(
+                MLTrainConfig.job_id == job.id
+            ).first()
+            if ml_config:
+                ml_config.markets = json.dumps(req.ml_markets)
+                ml_config.algorithms = json.dumps(req.ml_algorithms)
+                ml_config.target_days = json.dumps(req.ml_target_days)
+                ml_config.include_feature_compute = req.ml_include_feature_compute
+                ml_config.optuna_trials = req.ml_optuna_trials
+            else:
+                ml_config = MLTrainConfig(
+                    job_id=job.id,
+                    markets=json.dumps(req.ml_markets),
+                    algorithms=json.dumps(req.ml_algorithms),
+                    target_days=json.dumps(req.ml_target_days),
+                    include_feature_compute=req.ml_include_feature_compute,
+                    optuna_trials=req.ml_optuna_trials,
+                )
+                session.add(ml_config)
+            session.flush()
+
         # 이전 잡 제거 → 새 설정으로 등록
         scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
         if scheduler:
             scheduler.sync_job(old_job_name, "remove")
-            scheduler.sync_job(job.job_name, "add", job)
+            scheduler.sync_job(job.job_name, "add", job, ml_config=ml_config)
         return ScheduleJobResponse.from_model(job)
 
 
@@ -315,16 +358,34 @@ def delete_schedule_job(job_id: int):
 
 @router.post("/scheduler/jobs/{job_id}/run")
 def run_schedule_job(job_id: int):
-    """스케줄 즉시 실행 (백그라운드)"""
+    """스케줄 즉시 실행 (백그라운드) - 데이터 수집 / ML 학습 통합"""
     with database.session() as session:
         job = session.query(ScheduleJob).filter(ScheduleJob.id == job_id).first()
         if not job:
             raise HTTPException(status_code=404, detail=f"스케줄 없음: id={job_id}")
 
-        # 세션 안에서 값 추출
+        # 공통 값 추출
+        job_type = job.job_type
         job_days_back = job.days_back
         job_market = job.market
         job_sector = job.sector
+
+        # ML 전용 설정 조회
+        ml_markets = None
+        ml_algorithms = None
+        ml_target_days = None
+        ml_include_feature = True
+        ml_optuna_trials = 50
+        if job_type == "ml_train":
+            config = session.query(MLTrainConfig).filter(
+                MLTrainConfig.job_id == job.id
+            ).first()
+            if config:
+                ml_markets = config.get_markets()
+                ml_algorithms = config.get_algorithms()
+                ml_target_days = config.get_target_days()
+                ml_include_feature = config.include_feature_compute
+                ml_optuna_trials = config.optuna_trials
 
         # 실행 이력 생성
         log = ScheduleLog(
@@ -336,15 +397,49 @@ def run_schedule_job(job_id: int):
         session.flush()
         log_id = log.id
 
-    # 백그라운드 스레드에서 서비스 호출 → 즉시 응답
-    from services import StockService
-    svc = StockService()
-    thread = threading.Thread(
-        target=svc.run_schedule_job,
-        args=(log_id, job_market, job_sector, job_days_back),
-        daemon=True,
-    )
-    thread.start()
+    if job_type == "ml_train":
+        from ml.training_scheduler import run_training_schedule
+
+        def _run_ml():
+            try:
+                result = run_training_schedule(
+                    markets=ml_markets or ["KOSPI", "KOSDAQ"],
+                    algorithms=ml_algorithms,
+                    target_days=ml_target_days,
+                    include_feature_compute=ml_include_feature,
+                    optuna_trials=ml_optuna_trials,
+                )
+                with database.session() as session:
+                    log_entry = session.query(ScheduleLog).filter(
+                        ScheduleLog.id == log_id
+                    ).first()
+                    if log_entry:
+                        log_entry.finished_at = datetime.now()
+                        log_entry.status = "success" if result["failed"] == 0 else "partial"
+                        log_entry.success_count = result["trained"]
+                        log_entry.failed_count = result["failed"]
+                        log_entry.message = result.get("summary", "")[:500]
+            except Exception as e:
+                with database.session() as session:
+                    log_entry = session.query(ScheduleLog).filter(
+                        ScheduleLog.id == log_id
+                    ).first()
+                    if log_entry:
+                        log_entry.finished_at = datetime.now()
+                        log_entry.status = "failed"
+                        log_entry.message = str(e)[:500]
+
+        thread = threading.Thread(target=_run_ml, daemon=True)
+        thread.start()
+    else:
+        from services import StockService
+        svc = StockService()
+        thread = threading.Thread(
+            target=svc.run_schedule_job,
+            args=(log_id, job_market, job_sector, job_days_back),
+            daemon=True,
+        )
+        thread.start()
 
     return {
         "success": True,

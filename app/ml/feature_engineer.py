@@ -44,6 +44,7 @@ class FeatureEngineer:
         code: str,
         start_date: str = None,
         end_date: str = None,
+        target_days: list[int] = None,
     ) -> int:
         """
         단일 종목의 피처를 계산하여 feature_store에 저장
@@ -92,7 +93,7 @@ class FeatureEngineer:
                 return 0
 
             # 3. 피처 계산
-            features_df = self._compute_all_features(df)
+            features_df = self._compute_all_features(df, target_days=target_days)
 
             # 4. feature_store 레코드 생성
             records = []
@@ -130,6 +131,7 @@ class FeatureEngineer:
         market: str,
         start_date: str = None,
         end_date: str = None,
+        target_days: list[int] = None,
     ) -> dict:
         """
         마켓 전체 종목의 피처를 계산
@@ -157,7 +159,7 @@ class FeatureEngineer:
 
         for code in codes:
             try:
-                count = self.compute_features(market, code, start_date, end_date)
+                count = self.compute_features(market, code, start_date, end_date, target_days=target_days)
                 if count > 0:
                     success += 1
                 else:
@@ -172,8 +174,10 @@ class FeatureEngineer:
         )
         return {"total": total, "success": success, "failed": failed}
 
-    def _compute_all_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _compute_all_features(self, df: pd.DataFrame, target_days: list[int] = None) -> pd.DataFrame:
         """모든 피처를 계산하여 하나의 DataFrame으로 반환"""
+        if target_days is None:
+            target_days = [1, 5]  # 기본값 (하위 호환)
         result = df[["date", "close"]].copy()
 
         # === 가격 피처 ===
@@ -228,14 +232,13 @@ class FeatureEngineer:
             labels=[-1, 0, 1],
         ).astype(float).astype("Int64")
 
-        # === 타겟 변수 (미래 데이터 사용) ===
-        result["target_return_1d"] = df["close"].shift(-1) / df["close"] - 1
-        result["target_return_5d"] = df["close"].shift(-5) / df["close"] - 1
-        result["target_class_1d"] = (result["target_return_1d"] > 0).astype("Int64")
-        result["target_class_5d"] = (result["target_return_5d"] > 0).astype("Int64")
+        # === 타겟 변수 (동적 생성) ===
+        for days in target_days:
+            col_return = f"target_return_{days}d"
+            col_class = f"target_class_{days}d"
 
-        # 미래 데이터 없는 마지막 행들은 타겟 NULL
-        result.loc[result["target_return_1d"].isna(), "target_class_1d"] = pd.NA
-        result.loc[result["target_return_5d"].isna(), "target_class_5d"] = pd.NA
+            result[col_return] = df["close"].shift(-days) / df["close"] - 1
+            result[col_class] = (result[col_return] > 0).astype("Int64")
+            result.loc[result[col_return].isna(), col_class] = pd.NA
 
         return result

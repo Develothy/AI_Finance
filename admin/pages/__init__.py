@@ -1,1 +1,4 @@
-from admin.pages import server_status, db_status, log_viewer, config_viewer, scheduler_manager
+from admin.pages import (
+    server_status, db_status, log_viewer, config_viewer, scheduler_manager,
+    ml_train_manager, ml_models, ml_predictions,
+)

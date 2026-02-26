@@ -217,9 +217,13 @@ class MLRepository:
         prediction_date: str = None,
         signal: str = None,
         limit: int = 100,
-    ) -> list[MLPrediction]:
-        """예측 결과 조회"""
-        query = self.session.query(MLPrediction)
+    ) -> list[tuple[MLPrediction, str, str]]:
+        # 예측 결과 조회
+        query = self.session.query(
+            MLPrediction,
+            MLModel.model_name,
+            MLModel.algorithm,
+        ).outerjoin(MLModel, MLPrediction.model_id == MLModel.id)
         if market:
             query = query.filter(MLPrediction.market == market)
         if code:

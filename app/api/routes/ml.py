@@ -105,6 +105,11 @@ def predict(
     results = ml_service.predict(code, market, model_id)
     if not results:
         raise HTTPException(status_code=404, detail=f"예측 불가: {market}:{code} (활성 모델 또는 피처 없음)")
+    for r in results:
+        if hasattr(r.get("prediction_date"), "strftime"):
+            r["prediction_date"] = str(r["prediction_date"])
+        if hasattr(r.get("target_date"), "strftime"):
+            r["target_date"] = str(r["target_date"])
     return MLPredictResponse(
         code=code,
         market=market,

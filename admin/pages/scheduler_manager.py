@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from admin.api.client import admin_client
+from admin.config import utc_to_kst
 
 MARKETS = ["KOSPI", "KOSDAQ", "NYSE", "NASDAQ"]
 
@@ -119,8 +120,8 @@ def render():
         for log in logs:
             status = log["status"]
             rows.append({
-                "시작시각": log["started_at"],
-                "종료시각": log.get("finished_at", "") or "",
+                "시작시각": utc_to_kst(log.get("started_at")),
+                "종료시각": utc_to_kst(log.get("finished_at")),
                 "Job": log.get("job_name", f"id:{log['job_id']}"),
                 "상태": status,
                 "종목수": log["total_codes"],

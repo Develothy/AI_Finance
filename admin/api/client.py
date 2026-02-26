@@ -86,5 +86,45 @@ class AdminAPIClient:
             params["job_id"] = job_id
         return _self._get("/admin/scheduler/logs", params)
 
+    # ── ML 모델 ────────────────────────────────────────
+
+    @st.cache_data(ttl=10, show_spinner=False)
+    def get_ml_models(_self, market: str = None) -> list[dict]:
+        params = {}
+        if market:
+            params["market"] = market
+        return _self._get("/ml/models", params)
+
+    @st.cache_data(ttl=10, show_spinner=False)
+    def get_ml_model_detail(_self, model_id: int) -> dict:
+        return _self._get(f"/ml/models/{model_id}")
+
+    def delete_ml_model(_self, model_id: int) -> dict:
+        return _self._delete(f"/ml/models/{model_id}")
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def get_feature_importance(_self, model_id: int) -> dict:
+        return _self._get(f"/ml/feature-importance/{model_id}")
+
+    # ── ML 예측 ────────────────────────────────────────
+
+    def run_prediction(_self, code: str, market: str = "KOSPI", model_id: int = None) -> dict:
+        params = {"market": market}
+        if model_id:
+            params["model_id"] = model_id
+        url = f"{_self.base_url}/ml/predict/{code}"
+        resp = requests.post(url, params=params, timeout=_self.timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    @st.cache_data(ttl=5, show_spinner=False)
+    def get_predictions(_self, market: str = None, code: str = None, limit: int = 50) -> list[dict]:
+        params = {"limit": limit}
+        if market:
+            params["market"] = market
+        if code:
+            params["code"] = code
+        return _self._get("/ml/predictions", params)
+
 
 admin_client = AdminAPIClient()

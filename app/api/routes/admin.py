@@ -229,8 +229,22 @@ def list_schedule_jobs():
         jobs = session.query(ScheduleJob).order_by(ScheduleJob.id).all()
         scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
         next_runs = scheduler.get_next_runs() if scheduler else {}
+
+        # ML 학습 잡의 설정 조회
+        ml_job_ids = [j.id for j in jobs if getattr(j, "job_type", "") == "ml_train"]
+        ml_configs = {}
+        if ml_job_ids:
+            configs = session.query(MLTrainConfig).filter(
+                MLTrainConfig.job_id.in_(ml_job_ids)
+            ).all()
+            ml_configs = {c.job_id: c for c in configs}
+
         return [
-            ScheduleJobResponse.from_model(j, next_runs.get(j.job_name))
+            ScheduleJobResponse.from_model(
+                j,
+                next_runs.get(j.job_name),
+                ml_config=ml_configs.get(j.id),
+            )
             for j in jobs
         ]
 

@@ -244,10 +244,16 @@ class ScheduleJobResponse(BaseModel):
     created_at: Optional[str]
     updated_at: Optional[str]
     next_run_time: Optional[str] = None
+    # ML 학습 전용 (job_type="ml_train")
+    ml_markets: Optional[list[str]] = None
+    ml_algorithms: Optional[list[str]] = None
+    ml_target_days: Optional[list[int]] = None
+    ml_include_feature_compute: Optional[bool] = None
+    ml_optuna_trials: Optional[int] = None
 
     @classmethod
-    def from_model(cls, job, next_run: Optional[str] = None):
-        return cls(
+    def from_model(cls, job, next_run: Optional[str] = None, ml_config=None):
+        data = dict(
             id=job.id,
             job_name=job.job_name,
             job_type=getattr(job, "job_type", "data_collect"),
@@ -261,6 +267,13 @@ class ScheduleJobResponse(BaseModel):
             updated_at=job.updated_at.strftime("%Y-%m-%d %H:%M:%S") if job.updated_at else None,
             next_run_time=next_run,
         )
+        if ml_config:
+            data["ml_markets"] = ml_config.get_markets()
+            data["ml_algorithms"] = ml_config.get_algorithms()
+            data["ml_target_days"] = ml_config.get_target_days()
+            data["ml_include_feature_compute"] = ml_config.include_feature_compute
+            data["ml_optuna_trials"] = ml_config.optuna_trials
+        return cls(**data)
 
 
 class ScheduleLogResponse(BaseModel):

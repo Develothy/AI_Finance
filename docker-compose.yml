@@ -41,6 +41,7 @@ services:
       - "8000:8000"
     volumes:
       - ./app/logs:/app/logs
+      - saved_models:/app/saved_models
     restart: unless-stopped
 
   # 사용자 대시보드
@@ -75,3 +76,4 @@ services:
 
 volumes:
   postgres_data:
+  saved_models:

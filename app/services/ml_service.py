@@ -18,7 +18,7 @@ logger = get_logger("ml_service")
 
 
 class MLService:
-    """ML 기능 통합 서비스"""
+    # ML 기능 통합 서비스
 
     def __init__(self):
         self.feature_engineer = FeatureEngineer()
@@ -30,7 +30,7 @@ class MLService:
     # ============================================================
 
     def compute_features(self, market: str, code: str = None, start_date: str = None, end_date: str = None) -> dict:
-        """피처 계산"""
+        # 피처 계산
         if code:
             count = self.feature_engineer.compute_features(market, code, start_date, end_date)
             return {"market": market, "code": code, "saved_count": count}
@@ -62,11 +62,11 @@ class MLService:
     # ============================================================
 
     def predict(self, code: str, market: str, model_id: int = None) -> list[dict]:
-        """단일 종목 예측"""
+        # 단일 종목 예측
         return self.predictor.predict_single(code, market, model_id)
 
     def predict_market(self, market: str) -> dict:
-        """마켓 전체 예측"""
+        # 마켓 전체 예측
         return self.predictor.predict_market(market)
 
     # ============================================================
@@ -74,14 +74,14 @@ class MLService:
     # ============================================================
 
     def get_models(self, market: str = None) -> list[dict]:
-        """모델 목록"""
+        # 모델 목록
         with database.session() as session:
             repo = MLRepository(session)
             models = repo.get_all_models(market)
             return [self._model_to_dict(m) for m in models]
 
     def get_model_detail(self, model_id: int) -> dict | None:
-        """모델 상세"""
+        # 모델 상세
         with database.session() as session:
             repo = MLRepository(session)
             model = repo.get_model(model_id)
@@ -94,20 +94,20 @@ class MLService:
             return result
 
     def delete_model(self, model_id: int) -> bool:
-        """모델 삭제"""
+        # 모델 삭제
         with database.session() as session:
             repo = MLRepository(session)
             return repo.delete_model(model_id)
 
     def get_predictions(self, market: str = None, code: str = None, limit: int = 100) -> list[dict]:
-        """예측 결과 조회"""
+        # 예측 결과 조회
         with database.session() as session:
             repo = MLRepository(session)
-            predictions = repo.get_predictions(market=market, code=code, limit=limit)
-            return [self._prediction_to_dict(p) for p in predictions]
+            rows = repo.get_predictions(market=market, code=code, limit=limit)
+            return [self._prediction_to_dict(p, model_name=mn, algorithm=algo) for p, mn, algo in rows]
 
     def get_feature_importance(self, model_id: int) -> dict | None:
-        """피처 중요도 조회"""
+        # 피처 중요도 조회
         with database.session() as session:
             repo = MLRepository(session)
             logs = repo.get_training_logs(model_id=model_id, limit=1)
@@ -142,10 +142,12 @@ class MLService:
         }
 
     @staticmethod
-    def _prediction_to_dict(p) -> dict:
+    def _prediction_to_dict(p, model_name: str = None, algorithm: str = None) -> dict:
         return {
             "id": p.id,
             "model_id": p.model_id,
+            "model_name": model_name,
+            "algorithm": algorithm,
             "market": p.market,
             "code": p.code,
             "prediction_date": str(p.prediction_date) if p.prediction_date else None,

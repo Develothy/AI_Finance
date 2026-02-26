@@ -197,13 +197,22 @@ class ConfigResponse(BaseModel):
 
 
 class ScheduleJobRequest(BaseModel):
+    # --- 공통 필드 ---
     job_name: str
+    job_type: str = "data_collect"
     market: str
     sector: Optional[str] = None
     cron_expr: str  # 크론식: "0 18 * * *" (5필드) 또는 "0 0 18 * * *" (6필드, 초 포함)
     days_back: int = 7
     enabled: bool = True
     description: Optional[str] = None
+
+    # --- ML 학습 전용 필드 (job_type="ml_train"일 때만 사용) ---
+    ml_markets: list[str] = ["KOSPI", "KOSDAQ"]
+    ml_algorithms: list[str] = ["random_forest", "xgboost", "lightgbm"]
+    ml_target_days: list[int] = [1, 5]
+    ml_include_feature_compute: bool = True
+    ml_optuna_trials: int = 50
 
     @model_validator(mode="after")
     def validate_cron(self):
@@ -215,10 +224,17 @@ class ScheduleJobRequest(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_job_type(self):
+        if self.job_type not in ("data_collect", "ml_train"):
+            raise ValueError("job_type은 'data_collect' 또는 'ml_train'이어야 합니다.")
+        return self
+
 
 class ScheduleJobResponse(BaseModel):
     id: int
     job_name: str
+    job_type: str = "data_collect"
     market: str
     sector: Optional[str]
     cron_expr: str
@@ -234,6 +250,7 @@ class ScheduleJobResponse(BaseModel):
         return cls(
             id=job.id,
             job_name=job.job_name,
+            job_type=getattr(job, "job_type", "data_collect"),
             market=job.market,
             sector=job.sector,
             cron_expr=job.cron_expr,

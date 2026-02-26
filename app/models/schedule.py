@@ -25,6 +25,7 @@ class ScheduleJob(ModelBase):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_name = Column(String(50), unique=True, nullable=False)  # APScheduler 등록용
+    job_type = Column(String(20), nullable=False, default="data_collect")  # data_collect / ml_train
     market = Column(String(10), nullable=False)
     sector = Column(String(50), nullable=True)
     cron_expr = Column(String(100), nullable=False)  # 크론식: "0 18 * * *", "*/10 * * * *" 등
@@ -61,3 +62,46 @@ class ScheduleLog(ModelBase):
 
     def __repr__(self):
         return f"<ScheduleLog(job_id={self.job_id} {self.status} {self.started_at})>"
+
+
+class MLTrainConfig(ModelBase):
+    """ML 학습 스케줄 전용 설정 (schedule_job 1:1 확장)"""
+
+    __tablename__ = "ml_train_config"
+
+    job_id = Column(
+        Integer,
+        ForeignKey("schedule_job.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    markets = Column(
+        String(200), nullable=False, default='["KOSPI", "KOSDAQ"]'
+    )  # JSON 배열
+    algorithms = Column(
+        String(200), nullable=False,
+        default='["random_forest", "xgboost", "lightgbm"]'
+    )  # JSON 배열
+    target_days = Column(
+        String(100), nullable=False, default='[1, 5]'
+    )  # JSON 배열
+    include_feature_compute = Column(
+        Boolean, nullable=False, default=True
+    )
+    optuna_trials = Column(
+        Integer, nullable=False, default=50
+    )
+
+    def get_markets(self) -> list[str]:
+        import json
+        return json.loads(self.markets)
+
+    def get_algorithms(self) -> list[str]:
+        import json
+        return json.loads(self.algorithms)
+
+    def get_target_days(self) -> list[int]:
+        import json
+        return json.loads(self.target_days)
+
+    def __repr__(self):
+        return f"<MLTrainConfig(job_id={self.job_id} markets={self.markets})>"

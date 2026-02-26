@@ -145,14 +145,17 @@ class MLRepository:
             query = query.filter(MLModel.market == market)
         return query.order_by(MLModel.created_at.desc()).all()
 
-    def deactivate_models(self, market: str, model_type: str, target_column: str):
+    def deactivate_models(self, market: str, model_type: str, target_column: str, algorithm: str = None):
         """동일 조건의 기존 활성 모델 비활성화"""
-        self.session.query(MLModel).filter(
+        query = self.session.query(MLModel).filter(
             MLModel.market == market,
             MLModel.model_type == model_type,
             MLModel.target_column == target_column,
             MLModel.is_active == True,
-        ).update({"is_active": False})
+        )
+        if algorithm:
+            query = query.filter(MLModel.algorithm == algorithm)
+        query.update({"is_active": False})
 
     def delete_model(self, model_id: int) -> bool:
         """모델 삭제"""

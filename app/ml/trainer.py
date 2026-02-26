@@ -13,7 +13,6 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -30,6 +29,7 @@ from models import FeatureStore, MLModel, MLTrainingLog
 from repositories import MLRepository
 
 from .feature_engineer import PHASE1_FEATURE_COLUMNS
+from .ml_config_loader import get_algorithm_defaults, get_classifier_class
 from .tuner import tune_hyperparameters
 
 logger = get_logger("trainer")
@@ -39,25 +39,11 @@ SAVED_MODELS_DIR = Path(os.path.dirname(os.path.dirname(__file__))) / "saved_mod
 
 
 def _get_classifier(algorithm: str, params: dict):
-    """알고리즘별 분류기 생성"""
-    if algorithm == "random_forest":
-        defaults = {"class_weight": "balanced", "random_state": 42, "n_jobs": -1}
-        defaults.update(params)
-        return RandomForestClassifier(**defaults)
-
-    elif algorithm == "xgboost":
-        from xgboost import XGBClassifier
-        defaults = {"random_state": 42, "eval_metric": "logloss", "verbosity": 0}
-        defaults.update(params)
-        return XGBClassifier(**defaults)
-
-    elif algorithm == "lightgbm":
-        from lightgbm import LGBMClassifier
-        defaults = {"is_unbalance": True, "random_state": 42, "verbose": -1}
-        defaults.update(params)
-        return LGBMClassifier(**defaults)
-
-    raise ValueError(f"지원하지 않는 알고리즘: {algorithm}")
+    """알고리즘별 분류기 생성 (YAML 기반)"""
+    defaults = get_algorithm_defaults(algorithm).copy()
+    defaults.update(params)
+    clf_class = get_classifier_class(algorithm)
+    return clf_class(**defaults)
 
 
 class ModelTrainer:
@@ -281,11 +267,12 @@ class ModelTrainer:
         with database.session() as session:
             repo = MLRepository(session)
 
-            # 동일 타겟의 기존 활성 모델 비활성화
+            # 동일 알고리즘+타겟의 기존 활성 모델 비활성화
             repo.deactivate_models(
                 market=kwargs["market"],
                 model_type=kwargs["model_type"],
                 target_column=kwargs["target_column"],
+                algorithm=kwargs["algorithm"],
             )
 
             metrics = kwargs["metrics"]

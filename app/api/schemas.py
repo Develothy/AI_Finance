@@ -226,8 +226,9 @@ class ScheduleJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_job_type(self):
-        if self.job_type not in ("data_collect", "ml_train"):
-            raise ValueError("job_type은 'data_collect' 또는 'ml_train'이어야 합니다.")
+        valid_types = ("data_collect", "ml_train", "fundamental_collect")
+        if self.job_type not in valid_types:
+            raise ValueError(f"job_type은 {valid_types} 중 하나여야 합니다.")
         return self
 
 
@@ -399,3 +400,87 @@ class MLPredictResponse(BaseModel):
 class MLFeatureImportanceResponse(BaseModel):
     model_id: int
     features: dict[str, float]
+
+
+# ============================================================
+# 재무 데이터 스키마 (Phase 2)
+# ============================================================
+
+class FundamentalCollectRequest(BaseModel):
+    market: str = "KOSPI"
+    codes: Optional[list[str]] = None
+    date: Optional[str] = None
+
+
+class FundamentalCollectResponse(BaseModel):
+    market: str
+    total: Optional[int] = None
+    success: Optional[int] = None
+    failed: Optional[int] = None
+    saved: int = 0
+    skipped: bool = False
+    message: str = ""
+
+
+class FinancialCollectRequest(BaseModel):
+    market: str = "KOSPI"
+    codes: Optional[list[str]] = None
+    year: Optional[int] = None
+    quarter: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_quarter(self):
+        if self.quarter and self.quarter not in ("Q1", "Q2", "Q3", "A"):
+            raise ValueError("quarter는 'Q1', 'Q2', 'Q3', 'A' 중 하나여야 합니다")
+        return self
+
+
+class FinancialCollectResponse(BaseModel):
+    market: str
+    year: Optional[int] = None
+    quarter: Optional[str] = None
+    total: Optional[int] = None
+    success: Optional[int] = None
+    failed: Optional[int] = None
+    saved: int = 0
+    skipped: bool = False
+    message: str = ""
+
+
+class StockFundamentalResponse(BaseModel):
+    market: str
+    code: str
+    date: Optional[str] = None
+    per: Optional[float] = None
+    pbr: Optional[float] = None
+    eps: Optional[float] = None
+    bps: Optional[float] = None
+    market_cap: Optional[int] = None
+    div_yield: Optional[float] = None
+    foreign_ratio: Optional[float] = None
+    inst_net_buy: Optional[int] = None
+    foreign_net_buy: Optional[int] = None
+    individual_net_buy: Optional[int] = None
+
+
+class FinancialStatementResponse(BaseModel):
+    market: str
+    code: str
+    period: str
+    period_date: Optional[str] = None
+    revenue: Optional[int] = None
+    operating_profit: Optional[int] = None
+    net_income: Optional[int] = None
+    roe: Optional[float] = None
+    roa: Optional[float] = None
+    debt_ratio: Optional[float] = None
+    operating_margin: Optional[float] = None
+    net_margin: Optional[float] = None
+    source: Optional[str] = None
+
+
+class FundamentalSummaryResponse(BaseModel):
+    market: str
+    code: str
+    fundamental: Optional[StockFundamentalResponse] = None
+    financial_statement: Optional[FinancialStatementResponse] = None

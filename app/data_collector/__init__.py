@@ -55,6 +55,8 @@ from .stock_codes import (
 )
 from .kr_fetcher import fetch_kr_stocks
 from .us_fetcher import fetch_us_stocks
+from .kis_fetcher import KISClient
+from .dart_fetcher import DARTClient
 
 # 스케줄러는 선택적 import (apscheduler 필요)
 try:
@@ -82,6 +84,10 @@ __all__ = [
     # Fetcher
     "fetch_kr_stocks",
     "fetch_us_stocks",
+
+    # Phase 2 Fetcher
+    "KISClient",
+    "DARTClient",
 
     # 스케줄러
     "DataScheduler",

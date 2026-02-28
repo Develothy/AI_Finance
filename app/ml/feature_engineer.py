@@ -3,6 +3,7 @@
 ==========================
 
 StockPrice → 가격/기술지표/파생 피처 계산 → feature_store 저장
+Phase 2: + StockFundamental/FinancialStatement → 재무 피처 병합
 """
 
 import numpy as np
@@ -11,7 +12,7 @@ import pandas as pd
 from core import get_logger
 from db import database
 from indicators import calc_sma, calc_ema, calc_rsi, calc_macd, calc_bollinger_bands, calc_obv
-from models import StockPrice
+from models import StockPrice, StockFundamental, FinancialStatement
 from repositories import MLRepository
 
 logger = get_logger("feature_engineer")
@@ -24,6 +25,13 @@ PHASE1_FEATURE_COLUMNS = [
     "bb_upper", "bb_middle", "bb_lower", "bb_width", "bb_pctb",
     "obv",
     "price_to_sma20", "price_to_sma60", "golden_cross", "rsi_zone",
+]
+
+# Phase 2 피처 컬럼 (Phase 1 + 재무 피처)
+PHASE2_FEATURE_COLUMNS = PHASE1_FEATURE_COLUMNS + [
+    "per", "pbr", "eps", "market_cap",
+    "foreign_ratio", "inst_net_buy", "foreign_net_buy",
+    "roe", "debt_ratio",
 ]
 
 TARGET_COLUMNS = [
@@ -94,6 +102,11 @@ class FeatureEngineer:
 
             # 3. 피처 계산
             features_df = self._compute_all_features(df, target_days=target_days)
+
+            # 3.5 재무 피처 병합 (Phase 2)
+            features_df = self._merge_fundamental_features(
+                features_df, market, code, session,
+            )
 
             # 4. feature_store 레코드 생성
             records = []
@@ -173,6 +186,85 @@ class FeatureEngineer:
             "compute_all",
         )
         return {"total": total, "success": success, "failed": failed}
+
+    def _merge_fundamental_features(
+        self,
+        df: pd.DataFrame,
+        market: str,
+        code: str,
+        session,
+    ) -> pd.DataFrame:
+        """
+        재무 피처를 기존 피처 DataFrame에 병합 (Phase 2)
+
+        1) StockFundamental (일별): date 기준 left join → per, pbr, eps, market_cap, foreign_ratio, inst_net_buy, foreign_net_buy
+        2) FinancialStatement (분기별): period_date 기준 forward-fill → roe, debt_ratio
+        3) 데이터 없으면 NULL 유지 (graceful)
+        """
+        # --- 1) KIS 기초정보 병합 ---
+        fund_rows = (
+            session.query(StockFundamental)
+            .filter(
+                StockFundamental.market == market,
+                StockFundamental.code == code,
+            )
+            .order_by(StockFundamental.date)
+            .all()
+        )
+
+        if fund_rows:
+            fund_df = pd.DataFrame([{
+                "date": r.date,
+                "per": float(r.per) if r.per else None,
+                "pbr": float(r.pbr) if r.pbr else None,
+                "eps": float(r.eps) if r.eps else None,
+                "market_cap": int(r.market_cap) if r.market_cap else None,
+                "foreign_ratio": float(r.foreign_ratio) if r.foreign_ratio else None,
+                "inst_net_buy": int(r.inst_net_buy) if r.inst_net_buy else None,
+                "foreign_net_buy": int(r.foreign_net_buy) if r.foreign_net_buy else None,
+            } for r in fund_rows])
+
+            df = df.merge(fund_df, on="date", how="left")
+        else:
+            # 컬럼만 추가 (NULL)
+            for col in ["per", "pbr", "eps", "market_cap", "foreign_ratio", "inst_net_buy", "foreign_net_buy"]:
+                if col not in df.columns:
+                    df[col] = None
+
+        # --- 2) DART 재무제표 병합 (forward-fill) ---
+        stmt_rows = (
+            session.query(FinancialStatement)
+            .filter(
+                FinancialStatement.market == market,
+                FinancialStatement.code == code,
+            )
+            .order_by(FinancialStatement.period_date)
+            .all()
+        )
+
+        if stmt_rows:
+            stmt_df = pd.DataFrame([{
+                "period_date": r.period_date,
+                "roe": float(r.roe) if r.roe else None,
+                "debt_ratio": float(r.debt_ratio) if r.debt_ratio else None,
+            } for r in stmt_rows])
+
+            # forward-fill: 각 날짜에 대해 가장 최근 분기 데이터 적용
+            df["roe"] = None
+            df["debt_ratio"] = None
+
+            for _, stmt_row in stmt_df.iterrows():
+                mask = df["date"] >= stmt_row["period_date"]
+                if stmt_row["roe"] is not None:
+                    df.loc[mask, "roe"] = stmt_row["roe"]
+                if stmt_row["debt_ratio"] is not None:
+                    df.loc[mask, "debt_ratio"] = stmt_row["debt_ratio"]
+        else:
+            for col in ["roe", "debt_ratio"]:
+                if col not in df.columns:
+                    df[col] = None
+
+        return df
 
     def _compute_all_features(self, df: pd.DataFrame, target_days: list[int] = None) -> pd.DataFrame:
         """모든 피처를 계산하여 하나의 DataFrame으로 반환"""

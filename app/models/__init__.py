@@ -1,6 +1,7 @@
 from models.stock import StockPrice, StockInfo
 from models.schedule import ScheduleJob, ScheduleLog, MLTrainConfig
 from models.ml import FeatureStore, MLModel, MLTrainingLog, MLPrediction
+from models.fundamental import StockFundamental, FinancialStatement
 
 __all__ = [
     "StockPrice",
@@ -12,4 +13,6 @@ __all__ = [
     "MLModel",
     "MLTrainingLog",
     "MLPrediction",
+    "StockFundamental",
+    "FinancialStatement",
 ]

@@ -32,5 +32,9 @@ lightgbm>=4.0.0
 optuna>=3.0.0
 joblib>=1.3.0
 
+# Financial Data (Phase 2)
+opendartreader>=0.2.0
+requests>=2.31.0
+
 # Notification (optional)
 slack-sdk>=3.21.0

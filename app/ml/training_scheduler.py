@@ -8,6 +8,9 @@ ML 학습 스케줄러
 학습 결과는 기존 ml_model, ml_training_log 테이블에 자동 저장됨.
 """
 
+from datetime import date, datetime, timedelta
+from typing import Optional
+
 from core import get_logger
 from ml.feature_engineer import FeatureEngineer
 from ml.trainer import ModelTrainer
@@ -19,39 +22,126 @@ def run_training_schedule(
     markets: list[str],
     algorithms: list[str] = None,
     target_days: list[int] = None,
+    include_price_collect: bool = False,
+    include_kis_collect: bool = False,
+    include_dart_collect: bool = False,
     include_feature_compute: bool = True,
     optuna_trials: int = 50,
+    days_back: int = 7,
+    base_date: Optional[str] = None,
 ) -> dict:
     """
-    ML 학습 스케줄 실행
+    ML 학습 스케줄 실행 (4-Step 파이프라인 + 학습)
 
     Args:
         markets: 학습 대상 시장 목록 (예: ["KOSPI", "KOSDAQ"])
         algorithms: 학습 알고리즘 목록 (예: ["random_forest", "xgboost", "lightgbm"])
         target_days: 예측 타겟 일수 목록 (예: [1, 5, 10])
-        include_feature_compute: 피처 계산 포함 여부
+        include_price_collect: Step 1 - 가격 데이터 수집
+        include_kis_collect: Step 2 - KIS 기초정보 수집
+        include_dart_collect: Step 3 - DART 재무제표 수집
+        include_feature_compute: Step 4 - 피처 계산
         optuna_trials: Optuna 하이퍼파라미터 튜닝 횟수
+        days_back: Step 1 가격 수집 일수
+        base_date: 기준일 (YYYY-MM-DD). None이면 오늘 기준.
     """
     if algorithms is None:
         algorithms = ["random_forest", "xgboost", "lightgbm"]
     if target_days is None:
         target_days = [1, 5]
 
+    # 기준일 결정
+    if base_date:
+        _base = datetime.strptime(base_date, "%Y-%m-%d").date()
+    else:
+        _base = date.today()
+    _base_str = _base.strftime("%Y-%m-%d")
+
+    logger.info(f"ML 학습 파이프라인 시작 (base_date={_base_str})", "training_schedule")
+
     # 타겟 컬럼명 동적 생성
     targets = [f"target_class_{d}d" for d in target_days]
 
-    # 1) 피처 계산 (옵션) - target_days 전달
+    # Step 1) 가격 데이터 수집
+    if include_price_collect:
+        logger.info(f"Step 1: 가격 데이터 수집 시작 (base_date={_base_str})", "training_schedule")
+        from services import StockService
+        from api.schemas import CollectRequest
+        svc = StockService()
+
+        end_date_str = _base_str
+        start_date_str = (_base - timedelta(days=days_back)).strftime("%Y-%m-%d")
+
+        for market in markets:
+            try:
+                result = svc.collect(CollectRequest(
+                    market=market,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                ))
+                logger.info(
+                    f"Step 1 완료: {market} (saved={result.db_saved_count})",
+                    "training_schedule",
+                )
+            except Exception as e:
+                logger.error(f"Step 1 실패: {market} - {e}", "training_schedule")
+
+    # Step 2) KIS 기초정보 수집
+    if include_kis_collect:
+        logger.info(f"Step 2: KIS 기초정보 수집 시작 (base_date={_base_str})", "training_schedule")
+        from services import fundamental_service as fund_svc
+
+        # base_date를 영업일로 보정
+        kis_date = _base_str
+        try:
+            from core.market_calendar import previous_trading_day
+            kis_date = previous_trading_day(markets[0], _base).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+        for market in markets:
+            try:
+                result = fund_svc.collect_fundamentals(market=market, date=kis_date)
+                logger.info(
+                    f"Step 2 완료: {market} (saved={result.get('saved', 0)})",
+                    "training_schedule",
+                )
+            except Exception as e:
+                logger.error(f"Step 2 실패: {market} - {e}", "training_schedule")
+
+    # Step 3) DART 재무제표 수집
+    if include_dart_collect:
+        logger.info(f"Step 3: DART 재무제표 수집 시작 (base_date={_base_str})", "training_schedule")
+        from services import fundamental_service as fund_svc
+        from data_collector.dart_fetcher import get_quarter_for_date
+
+        year, quarter = get_quarter_for_date(_base)
+        logger.info(f"Step 3: 기준분기 = {year}/{quarter}", "training_schedule")
+
+        for market in markets:
+            try:
+                result = fund_svc.collect_financial_statements(
+                    market=market, year=year, quarter=quarter,
+                )
+                logger.info(
+                    f"Step 3 완료: {market} (saved={result.get('saved', 0)})",
+                    "training_schedule",
+                )
+            except Exception as e:
+                logger.error(f"Step 3 실패: {market} - {e}", "training_schedule")
+
+    # Step 4) 피처 계산 - target_days 전달
     if include_feature_compute:
-        logger.info("피처 계산 시작", "training_schedule")
+        logger.info("Step 4: 피처 계산 시작", "training_schedule")
         fe = FeatureEngineer()
         for market in markets:
             try:
                 fe.compute_all(market=market, target_days=target_days)
-                logger.info(f"피처 계산 완료: {market}", "training_schedule")
+                logger.info(f"Step 4 완료: {market}", "training_schedule")
             except Exception as e:
-                logger.error(f"피처 계산 실패: {market} - {e}", "training_schedule")
+                logger.error(f"Step 4 실패: {market} - {e}", "training_schedule")
 
-    # 2) 조합별 순차 학습
+    # Step 5) 조합별 순차 학습
     trainer = ModelTrainer()
     results = []
     trained = 0
@@ -89,13 +179,14 @@ def run_training_schedule(
                     logger.error(f"학습 실패: {combo} - {e}", "training_schedule")
 
     total = trained + failed
-    summary = f"ML 학습 완료: {trained}/{total} 성공 (markets={markets})"
+    summary = f"ML 학습 완료: {trained}/{total} 성공 (markets={markets}, base_date={_base_str})"
     logger.info(summary, "training_schedule")
 
     return {
         "trained": trained,
         "failed": failed,
         "total": total,
+        "base_date": _base_str,
         "details": results,
         "summary": summary,
     }

@@ -58,7 +58,7 @@ class DARTClient:
             )
 
     def _get_dart(self):
-        """OpenDartReader 인스턴스 (lazy init)"""
+        # OpenDartReader 인스턴스 (lazy init)
         if self._dart is None:
             try:
                 import OpenDartReader
@@ -136,10 +136,10 @@ class DARTClient:
         year: int,
         quarter: str,
     ) -> Optional[dict]:
-        """DataFrame에서 주요 재무 항목 추출"""
+        # DataFrame에서 주요 재무 항목 추출
         # account_nm으로 항목 매칭
         def find_amount(keywords: list[str]) -> Optional[int]:
-            """account_nm에서 키워드로 금액 찾기"""
+            # account_nm에서 키워드로 금액 찾기
             for _, row in df.iterrows():
                 account = str(row.get("account_nm", ""))
                 for kw in keywords:
@@ -261,7 +261,6 @@ class DARTClient:
 # ============================================================
 
 def _safe_bigint(val) -> Optional[int]:
-    """안전한 BigInteger 변환 (문자열 쉼표 제거 포함)"""
     if val is None or val == "":
         return None
     try:
@@ -272,15 +271,19 @@ def _safe_bigint(val) -> Optional[int]:
         return None
 
 
-def get_current_quarter() -> tuple[int, str]:
-    """현재 날짜 기준 최신 확정 분기 반환 (공시 지연 고려)
+def get_quarter_for_date(d: date = None) -> tuple[int, str]:
+    """주어진 날짜 기준 최신 확정 분기 반환 (공시 지연 고려)
+
+    Args:
+        d: 기준일 (None이면 오늘)
 
     Returns:
         (year, quarter): 예) (2025, "Q3")
     """
-    today = date.today()
-    year = today.year
-    month = today.month
+    if d is None:
+        d = date.today()
+    year = d.year
+    month = d.month
 
     # 공시 지연 약 45일 감안:
     # 1~4월 → 전년 Q3 (11월에 3분기 공시)
@@ -295,3 +298,8 @@ def get_current_quarter() -> tuple[int, str]:
         return year, "Q1"
     else:
         return year, "Q2"
+
+
+def get_current_quarter() -> tuple[int, str]:
+    # 현재 날짜 기준 최신 확정 분기 반환 (하위 호환)
+    return get_quarter_for_date()

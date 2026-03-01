@@ -28,7 +28,7 @@ from db import database
 from models import FeatureStore, MLModel, MLTrainingLog
 from repositories import MLRepository
 
-from .feature_engineer import PHASE1_FEATURE_COLUMNS
+from .feature_engineer import PHASE2_FEATURE_COLUMNS
 from .ml_config_loader import get_algorithm_defaults, get_classifier_class
 from .tuner import tune_hyperparameters
 
@@ -57,7 +57,7 @@ class ModelTrainer:
         market: str,
         algorithm: str = "random_forest",
         target_column: str = "target_class_1d",
-        train_ratio: float = 0.7,
+        train_ratio: float = 0.85,
         val_ratio: float = 0.15,
         optuna_trials: int = 50,
         feature_columns: list[str] = None,
@@ -72,12 +72,12 @@ class ModelTrainer:
             train_ratio: 학습 데이터 비율
             val_ratio: 검증 데이터 비율
             optuna_trials: Optuna 시도 횟수 (0이면 기본 파라미터)
-            feature_columns: 사용할 피처 컬럼 목록 (None이면 PHASE1_FEATURE_COLUMNS)
+            feature_columns: 사용할 피처 컬럼 목록 (None이면 PHASE2_FEATURE_COLUMNS)
 
         Returns:
             {"model_id": int, "metrics": dict, "model_name": str}
         """
-        features = feature_columns or PHASE1_FEATURE_COLUMNS
+        features = feature_columns or PHASE2_FEATURE_COLUMNS
         model_type = "classification"  # Phase 1은 분류만
 
         # 1. 학습 이력 생성
@@ -104,7 +104,15 @@ class ModelTrainer:
             X_test = test_df[features].values
             y_test = test_df[target_column].values
 
-            # 4. 스케일링
+            # 4. NaN 처리 — RandomForest는 NaN 불가, 중앙값 impute
+            if algorithm == "random_forest":
+                from sklearn.impute import SimpleImputer
+                imputer = SimpleImputer(strategy="median")
+                X_train = imputer.fit_transform(X_train)
+                X_val = imputer.transform(X_val)
+                X_test = imputer.transform(X_test)
+
+            # 5. 스케일링
             scaler = RobustScaler()
             X_train = scaler.fit_transform(X_train)
             X_val = scaler.transform(X_val)
@@ -152,13 +160,16 @@ class ModelTrainer:
             model_path = str(SAVED_MODELS_DIR / file_name)
 
             # 모델 + 스케일러 함께 저장
-            joblib.dump({
+            save_data = {
                 "model": model,
                 "scaler": scaler,
                 "feature_columns": features,
                 "algorithm": algorithm,
                 "target_column": target_column,
-            }, model_path)
+            }
+            if algorithm == "random_forest":
+                save_data["imputer"] = imputer
+            joblib.dump(save_data, model_path)
 
             # 10. DB 저장
             model_id = self._save_model_to_db(
@@ -231,8 +242,16 @@ class ModelTrainer:
                 data.append(row_dict)
 
             df = pd.DataFrame(data)
-            # NaN 있는 행 제거
-            df = df.dropna(subset=features + [target_column])
+            # 타겟만 dropna (피처 NaN은 알고리즘/impute에서 처리)
+            df = df.dropna(subset=[target_column])
+
+            nan_counts = df[features].isna().sum()
+            nan_features = nan_counts[nan_counts > 0]
+            if len(nan_features) > 0:
+                logger.info(
+                    f"NaN 피처: {dict(nan_features)} (알고리즘별 처리)",
+                    "_load_data",
+                )
             return df
 
     def _split_data(

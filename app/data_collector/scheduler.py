@@ -98,7 +98,7 @@ class DataScheduler:
         logger.info("DataScheduler 초기화 완료", "__init__")
 
     def load_jobs_from_db(self):
-        """DB에서 enabled 스케줄을 읽어 APScheduler에 등록"""
+        # enabled 스케줄 APScheduler에 등록
         from models import ScheduleJob, MLTrainConfig
 
         with database.session() as session:
@@ -239,7 +239,7 @@ class DataScheduler:
             market: str = None,
             sector: str = None
     ):
-        """한국 주식 일별 수집 작업"""
+        # 한국 주식 일별 수집 작업
         h = hour if hour is not None else settings.DATA_FETCH_HOUR
         m = minute if minute is not None else settings.DATA_FETCH_MINUTE
         self.add_cron_job(
@@ -256,7 +256,7 @@ class DataScheduler:
             market: str = None,
             sector: str = None
     ):
-        """미국 주식 일별 수집 작업"""
+        # 미국 주식 일별 수집 작업
         h = hour if hour is not None else 7  # 한국 시간 오전 7시
         m = minute if minute is not None else 0
         self.add_cron_job(
@@ -282,8 +282,12 @@ class DataScheduler:
         markets = config.get_markets() if config else ["KOSPI", "KOSDAQ"]
         algorithms = config.get_algorithms() if config else None
         target_days = config.get_target_days() if config else None
+        include_price_collect = config.include_price_collect if config else False
+        include_kis_collect = config.include_kis_collect if config else False
+        include_dart_collect = config.include_dart_collect if config else False
         include_feature = config.include_feature_compute if config else True
         optuna_trials = config.optuna_trials if config else 50
+        days_back = job_model.days_back or 7
 
         def ml_job_func():
             from models import ScheduleJob as SJ, ScheduleLog
@@ -311,8 +315,12 @@ class DataScheduler:
                     markets=markets,
                     algorithms=algorithms,
                     target_days=target_days,
+                    include_price_collect=include_price_collect,
+                    include_kis_collect=include_kis_collect,
+                    include_dart_collect=include_dart_collect,
                     include_feature_compute=include_feature,
                     optuna_trials=optuna_trials,
+                    days_back=days_back,
                 )
 
                 if log_id:

@@ -211,7 +211,10 @@ class ScheduleJobRequest(BaseModel):
     ml_markets: list[str] = ["KOSPI", "KOSDAQ"]
     ml_algorithms: list[str] = ["random_forest", "xgboost", "lightgbm"]
     ml_target_days: list[int] = [1, 5]
-    ml_include_feature_compute: bool = True
+    ml_include_price_collect: bool = False    # Step 1: 가격 데이터 수집
+    ml_include_kis_collect: bool = False      # Step 2: KIS 기초정보 수집
+    ml_include_dart_collect: bool = False     # Step 3: DART 재무제표 수집
+    ml_include_feature_compute: bool = True   # Step 4: 피처 계산
     ml_optuna_trials: int = 50
 
     @model_validator(mode="after")
@@ -249,6 +252,9 @@ class ScheduleJobResponse(BaseModel):
     ml_markets: Optional[list[str]] = None
     ml_algorithms: Optional[list[str]] = None
     ml_target_days: Optional[list[int]] = None
+    ml_include_price_collect: Optional[bool] = None
+    ml_include_kis_collect: Optional[bool] = None
+    ml_include_dart_collect: Optional[bool] = None
     ml_include_feature_compute: Optional[bool] = None
     ml_optuna_trials: Optional[int] = None
 
@@ -272,6 +278,9 @@ class ScheduleJobResponse(BaseModel):
             data["ml_markets"] = ml_config.get_markets()
             data["ml_algorithms"] = ml_config.get_algorithms()
             data["ml_target_days"] = ml_config.get_target_days()
+            data["ml_include_price_collect"] = ml_config.include_price_collect
+            data["ml_include_kis_collect"] = ml_config.include_kis_collect
+            data["ml_include_dart_collect"] = ml_config.include_dart_collect
             data["ml_include_feature_compute"] = ml_config.include_feature_compute
             data["ml_optuna_trials"] = ml_config.optuna_trials
         return cls(**data)
@@ -484,3 +493,22 @@ class FundamentalSummaryResponse(BaseModel):
     code: str
     fundamental: Optional[StockFundamentalResponse] = None
     financial_statement: Optional[FinancialStatementResponse] = None
+
+
+# ============================================================
+# 즉시실행 Request
+# ============================================================
+
+class RunJobRequest(BaseModel):
+    # 스케줄 즉시실행 시
+    base_date: Optional[str] = None  # "YYYY-MM-DD" 또는 None(=오늘)
+
+    @model_validator(mode="after")
+    def validate_base_date(self):
+        if self.base_date:
+            from datetime import datetime
+            try:
+                datetime.strptime(self.base_date, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("base_date는 'YYYY-MM-DD' 형식이어야 합니다")
+        return self

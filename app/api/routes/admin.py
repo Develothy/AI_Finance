@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from sqlalchemy import func
 
 from api.schemas import (
@@ -21,6 +21,7 @@ from api.schemas import (
     HealthResponse,
     LogEntry,
     LogResponse,
+    RunJobRequest,
     ScheduleJobRequest,
     ScheduleJobResponse,
     ScheduleLogResponse,
@@ -187,6 +188,7 @@ def get_config():
     masked_keys = {
         "DB_PASSWORD", "SLACK_TOKEN", "SLACK_WEBHOOK_URL",
         "KIS_APP_KEY", "KIS_APP_SECRET", "KIS_ACCOUNT_NO",
+        "KIS_MOCK_APP_KEY", "KIS_MOCK_APP_SECRET", "KIS_MOCK_ACCOUNT_NO",
         "ALPACA_API_KEY", "ALPACA_SECRET_KEY",
         "OPENAI_API_KEY",
     }
@@ -197,7 +199,8 @@ def get_config():
         "database": ["DB_TYPE", "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD", "SQLITE_PATH"],
         "scheduler": ["SCHEDULER_TIMEZONE", "DATA_FETCH_HOUR", "DATA_FETCH_MINUTE"],
         "slack": ["SLACK_ENABLED", "SLACK_TOKEN", "SLACK_CHANNEL", "SLACK_WEBHOOK_URL"],
-        "kis": ["KIS_APP_KEY", "KIS_APP_SECRET", "KIS_ACCOUNT_NO", "KIS_MOCK_MODE"],
+        "kis": ["KIS_APP_KEY", "KIS_APP_SECRET", "KIS_ACCOUNT_NO",
+                "KIS_MOCK_APP_KEY", "KIS_MOCK_APP_SECRET", "KIS_MOCK_ACCOUNT_NO", "KIS_MOCK_MODE"],
         "alpaca": ["ALPACA_API_KEY", "ALPACA_SECRET_KEY", "ALPACA_PAPER"],
         "openai": ["OPENAI_API_KEY", "OPENAI_MODEL"],
     }
@@ -281,6 +284,9 @@ def create_schedule_job(req: ScheduleJobRequest):
                 markets=json.dumps(req.ml_markets),
                 algorithms=json.dumps(req.ml_algorithms),
                 target_days=json.dumps(req.ml_target_days),
+                include_price_collect=req.ml_include_price_collect,
+                include_kis_collect=req.ml_include_kis_collect,
+                include_dart_collect=req.ml_include_dart_collect,
                 include_feature_compute=req.ml_include_feature_compute,
                 optuna_trials=req.ml_optuna_trials,
             )
@@ -333,6 +339,9 @@ def update_schedule_job(job_id: int, req: ScheduleJobRequest):
                 ml_config.markets = json.dumps(req.ml_markets)
                 ml_config.algorithms = json.dumps(req.ml_algorithms)
                 ml_config.target_days = json.dumps(req.ml_target_days)
+                ml_config.include_price_collect = req.ml_include_price_collect
+                ml_config.include_kis_collect = req.ml_include_kis_collect
+                ml_config.include_dart_collect = req.ml_include_dart_collect
                 ml_config.include_feature_compute = req.ml_include_feature_compute
                 ml_config.optuna_trials = req.ml_optuna_trials
             else:
@@ -341,6 +350,9 @@ def update_schedule_job(job_id: int, req: ScheduleJobRequest):
                     markets=json.dumps(req.ml_markets),
                     algorithms=json.dumps(req.ml_algorithms),
                     target_days=json.dumps(req.ml_target_days),
+                    include_price_collect=req.ml_include_price_collect,
+                    include_kis_collect=req.ml_include_kis_collect,
+                    include_dart_collect=req.ml_include_dart_collect,
                     include_feature_compute=req.ml_include_feature_compute,
                     optuna_trials=req.ml_optuna_trials,
                 )
@@ -371,8 +383,10 @@ def delete_schedule_job(job_id: int):
 
 
 @router.post("/scheduler/jobs/{job_id}/run")
-def run_schedule_job(job_id: int):
-    """스케줄 즉시 실행 (백그라운드) - 데이터 수집 / ML 학습 통합"""
+def run_schedule_job(job_id: int, req: Optional[RunJobRequest] = Body(default=None)):
+    # 스케줄 즉시 실행 (백그라운드) - 데이터 수집 / ML 학습 통합
+    base_date = req.base_date if req else None
+
     with database.session() as session:
         job = session.query(ScheduleJob).filter(ScheduleJob.id == job_id).first()
         if not job:
@@ -388,6 +402,9 @@ def run_schedule_job(job_id: int):
         ml_markets = None
         ml_algorithms = None
         ml_target_days = None
+        ml_include_price_collect = False
+        ml_include_kis_collect = False
+        ml_include_dart_collect = False
         ml_include_feature = True
         ml_optuna_trials = 50
         if job_type == "ml_train":
@@ -398,6 +415,9 @@ def run_schedule_job(job_id: int):
                 ml_markets = config.get_markets()
                 ml_algorithms = config.get_algorithms()
                 ml_target_days = config.get_target_days()
+                ml_include_price_collect = config.include_price_collect
+                ml_include_kis_collect = config.include_kis_collect
+                ml_include_dart_collect = config.include_dart_collect
                 ml_include_feature = config.include_feature_compute
                 ml_optuna_trials = config.optuna_trials
 
@@ -420,8 +440,13 @@ def run_schedule_job(job_id: int):
                     markets=ml_markets or ["KOSPI", "KOSDAQ"],
                     algorithms=ml_algorithms,
                     target_days=ml_target_days,
+                    include_price_collect=ml_include_price_collect,
+                    include_kis_collect=ml_include_kis_collect,
+                    include_dart_collect=ml_include_dart_collect,
                     include_feature_compute=ml_include_feature,
                     optuna_trials=ml_optuna_trials,
+                    days_back=job_days_back,
+                    base_date=base_date,
                 )
                 with database.session() as session:
                     log_entry = session.query(ScheduleLog).filter(

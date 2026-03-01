@@ -48,10 +48,15 @@ class _Settings:
     DB_PASSWORD: Optional[str] = None
     SQLITE_PATH: str = "data/quant.db"
 
-    # 한국투자증권
+    # 한국투자증권 — 실전
     KIS_APP_KEY: Optional[str] = None
     KIS_APP_SECRET: Optional[str] = None
     KIS_ACCOUNT_NO: Optional[str] = None
+    # 한국투자증권 — 모의
+    KIS_MOCK_APP_KEY: Optional[str] = None
+    KIS_MOCK_APP_SECRET: Optional[str] = None
+    KIS_MOCK_ACCOUNT_NO: Optional[str] = None
+    # 모드 선택 (true=모의, false=실전)
     KIS_MOCK_MODE: bool = True
 
     # Alpaca

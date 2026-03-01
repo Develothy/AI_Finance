@@ -42,10 +42,16 @@ class KISClient:
     """한국투자증권 Open API 클라이언트"""
 
     def __init__(self):
-        self.app_key = settings.KIS_APP_KEY
-        self.app_secret = settings.KIS_APP_SECRET
-        self.account_no = settings.KIS_ACCOUNT_NO
         self.mock_mode = settings.KIS_MOCK_MODE
+
+        if self.mock_mode:
+            self.app_key = settings.KIS_MOCK_APP_KEY
+            self.app_secret = settings.KIS_MOCK_APP_SECRET
+            self.account_no = settings.KIS_MOCK_ACCOUNT_NO
+        else:
+            self.app_key = settings.KIS_APP_KEY
+            self.app_secret = settings.KIS_APP_SECRET
+            self.account_no = settings.KIS_ACCOUNT_NO
 
         self.available = bool(self.app_key and self.app_secret)
         self.base_url = _BASE_URL_MOCK if self.mock_mode else _BASE_URL_REAL
@@ -64,7 +70,7 @@ class KISClient:
     # ============================================================
 
     def _get_access_token(self) -> str:
-        """OAuth2 액세스 토큰 발급 (캐시)"""
+        # OAuth2 액세스 토큰 발급 (캐시)
         now = datetime.now()
         if self._access_token and self._token_expires_at and now < self._token_expires_at:
             return self._access_token
@@ -89,7 +95,6 @@ class KISClient:
         return self._access_token
 
     def _make_headers(self, tr_id: str) -> dict:
-        """API 요청 헤더 생성"""
         token = self._get_access_token()
         return {
             "Content-Type": "application/json; charset=utf-8",
@@ -214,7 +219,11 @@ class KISClient:
             return result
 
         if date is None:
-            date = datetime.now().strftime("%Y-%m-%d")
+            try:
+                from core.market_calendar import previous_trading_day
+                date = previous_trading_day(market).strftime("%Y-%m-%d")
+            except Exception:
+                date = datetime.now().strftime("%Y-%m-%d")
 
         logger.info(
             f"KIS 기초정보 수집 시작: {market} ({len(codes)}종목)",
@@ -268,7 +277,7 @@ class KISClient:
 # ============================================================
 
 def _safe_float(val) -> Optional[float]:
-    """안전한 float 변환 (빈 문자열, None 처리)"""
+    # 안전한 float 변환 (빈 문자열, None 처리)
     if val is None or val == "" or val == "0":
         return None
     try:
@@ -278,7 +287,6 @@ def _safe_float(val) -> Optional[float]:
 
 
 def _safe_int(val) -> Optional[int]:
-    """안전한 int 변환"""
     if val is None or val == "":
         return None
     try:

@@ -36,6 +36,14 @@ from .decorators import (
     robust_execution,
 )
 
+from .market_calendar import (
+    is_trading_day,
+    next_trading_day,
+    previous_trading_day,
+    get_trading_days,
+    MARKET_TO_EXCHANGE,
+)
+
 from .exceptions import (
     # Base
     BaseAppException,
@@ -106,6 +114,13 @@ __all__ = [
 
     # Exceptions - Config
     "ConfigError",
+
+    # Market Calendar
+    "is_trading_day",
+    "next_trading_day",
+    "previous_trading_day",
+    "get_trading_days",
+    "MARKET_TO_EXCHANGE",
 ]
 
 __version__ = "1.0.0"

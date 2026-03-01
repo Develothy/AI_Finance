@@ -84,9 +84,19 @@ class MLTrainConfig(ModelBase):
     target_days = Column(
         String(100), nullable=False, default='[1, 5]'
     )  # JSON 배열
+    # 파이프라인 스텝 플래그 (Step 1~4)
+    include_price_collect = Column(
+        Boolean, nullable=False, default=False
+    )  # Step 1: 가격 데이터 수집
+    include_kis_collect = Column(
+        Boolean, nullable=False, default=False
+    )  # Step 2: KIS 기초정보 수집
+    include_dart_collect = Column(
+        Boolean, nullable=False, default=False
+    )  # Step 3: DART 재무제표 수집
     include_feature_compute = Column(
         Boolean, nullable=False, default=True
-    )
+    )  # Step 4: 피처 계산
     optuna_trials = Column(
         Integer, nullable=False, default=50
     )

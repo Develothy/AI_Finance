@@ -172,15 +172,18 @@ class Predictor:
 
         X = np.array([feature_values])
 
-        # NaN 체크
+        # NaN 처리 — imputer가 있으면 사용, 없으면 0 대체
         if np.any(np.isnan(X)):
             nan_cols = [feature_columns[i] for i in range(len(feature_columns)) if np.isnan(X[0][i])]
             logger.warning(
                 f"NaN 피처 발견: {market}:{code} ({nan_cols[:5]}...)",
                 "_run_prediction",
             )
-            # NaN을 0으로 대체 (스케일링 후에는 평균값에 가까움)
-            X = np.nan_to_num(X, nan=0.0)
+            imputer = saved.get("imputer")
+            if imputer:
+                X = imputer.transform(X)
+            else:
+                X = np.nan_to_num(X, nan=0.0)
 
         # 3. 스케일링
         X_scaled = scaler.transform(X)
@@ -195,10 +198,17 @@ class Predictor:
         # 5. 시그널 생성
         signal, confidence = generate_signal(probability_up)
 
-        # 6. 타겟 날짜 계산
+        # 6. 타겟 날짜 계산 (영업일 기준)
         prediction_date = feature_row.date
         days_ahead = 1 if "1d" in target_column else 5
-        target_date = prediction_date + timedelta(days=days_ahead)
+        try:
+            from core.market_calendar import next_trading_day
+            current = prediction_date
+            for _ in range(days_ahead):
+                current = next_trading_day(market, current)
+            target_date = current
+        except Exception:
+            target_date = prediction_date + timedelta(days=days_ahead)
 
         return {
             "model_id": ml_model.id,

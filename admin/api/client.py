@@ -127,4 +127,39 @@ class AdminAPIClient:
         return _self._get("/ml/predictions", params)
 
 
+    # ── 재무 데이터 ────────────────────────────────────
+
+    def collect_fundamentals(_self, market: str, codes: list[str] = None, date: str = None) -> dict:
+        json_data = {"market": market}
+        if codes:
+            json_data["codes"] = codes
+        if date:
+            json_data["date"] = date
+        return _self._post("/fundamental/collect", json=json_data)
+
+    def collect_financial_statements(
+        _self, market: str, codes: list[str] = None, year: int = None, quarter: str = None,
+    ) -> dict:
+        json_data = {"market": market}
+        if codes:
+            json_data["codes"] = codes
+        if year:
+            json_data["year"] = year
+        if quarter:
+            json_data["quarter"] = quarter
+        return _self._post("/fundamental/collect/financial", json=json_data)
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def get_fundamental_summary(_self, code: str, market: str = "KOSPI") -> dict:
+        return _self._get(f"/fundamental/summary/{code}", params={"market": market})
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def get_fundamentals(_self, code: str, market: str = "KOSPI") -> list:
+        return _self._get(f"/fundamental/{code}", params={"market": market})
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def get_financial_statements(_self, code: str, market: str = "KOSPI", limit: int = 20) -> list:
+        return _self._get(f"/fundamental/{code}/financial", params={"market": market, "limit": limit})
+
+
 admin_client = AdminAPIClient()

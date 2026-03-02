@@ -24,12 +24,18 @@ def render():
         st.error(f"스케줄 목록 조회 실패: {e}")
         jobs = []
 
-    if jobs:
-        for job in jobs:
+    # ML 학습 잡은 ML 학습 관리 페이지에서 처리 — 여기선 data_collect + fundamental_collect만
+    data_jobs = [j for j in jobs if j.get("job_type", "data_collect") in ("data_collect", "fundamental_collect")]
+
+    if data_jobs:
+        for job in data_jobs:
             col1, col2, col3, col4, col5, col6 = st.columns([2, 1.5, 1.5, 1.5, 1, 1])
 
+            jtype = job.get("job_type", "data_collect")
+            type_badge = "💰 재무" if jtype == "fundamental_collect" else "📊 가격"
             col1.markdown(
-                f"**{job['job_name']}**"
+                f"<span style='font-size:0.75rem;background:#333;padding:1px 6px;border-radius:4px;'>"
+                f"{type_badge}</span> **{job['job_name']}**"
                 f"<br><span style='color:#888;font-size:0.8rem;'>{job.get('description', '') or ''}</span>",
                 unsafe_allow_html=True,
             )
@@ -60,7 +66,7 @@ def render():
                 except Exception as e:
                     st.error(f"삭제 실패: {e}")
     else:
-        st.info("등록된 스케줄이 없습니다.")
+        st.info("등록된 데이터 수집 스케줄이 없습니다.")
 
     # ── 스케줄 추가 폼 ────────────────────────────────
     st.markdown("---")
@@ -72,8 +78,11 @@ def render():
         "`0 9 * * 1` (매주 월요일 9시)"
     )
 
+    JOB_TYPES = {"data_collect": "📊 가격 수집", "fundamental_collect": "💰 재무 수집"}
+
     with st.form("add_schedule"):
-        fc1, fc2, fc3 = st.columns(3)
+        fc0, fc1, fc2, fc3 = st.columns([1.5, 1.5, 1.5, 1.5])
+        job_type = fc0.selectbox("수집 타입", list(JOB_TYPES.keys()), format_func=lambda x: JOB_TYPES[x])
         job_name = fc1.text_input("Job 이름", placeholder="kr_daily_kospi")
         market = fc2.selectbox("마켓", MARKETS)
         sector = fc3.text_input("섹터 (선택)", placeholder="반도체")
@@ -93,6 +102,7 @@ def render():
                 try:
                     data = {
                         "job_name": job_name,
+                        "job_type": job_type,
                         "market": market,
                         "sector": sector or None,
                         "cron_expr": cron_expr.strip(),

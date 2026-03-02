@@ -143,7 +143,7 @@ class MLRepository:
         query = self.session.query(MLModel)
         if market:
             query = query.filter(MLModel.market == market)
-        return query.order_by(MLModel.created_at.desc()).all()
+        return query.order_by(MLModel.is_active.desc(), MLModel.id.desc()).all()
 
     def deactivate_models(self, market: str, model_type: str, target_column: str, algorithm: str = None):
         """동일 조건의 기존 활성 모델 비활성화"""

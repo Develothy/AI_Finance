@@ -6,6 +6,8 @@ StockPrice → 가격/기술지표/파생 피처 계산 → feature_store 저장
 Phase 2: + StockFundamental/FinancialStatement → 재무 피처 병합
 """
 
+from datetime import timedelta
+
 import numpy as np
 import pandas as pd
 
@@ -14,6 +16,9 @@ from db import database
 from indicators import calc_sma, calc_ema, calc_rsi, calc_macd, calc_bollinger_bands, calc_obv
 from models import StockPrice, StockFundamental, FinancialStatement
 from repositories import MLRepository
+
+# SMA60이 가장 긴 lookback → 캘린더일 120일 ≈ 영업일 80일
+_LOOKBACK_CALENDAR_DAYS = 120
 
 logger = get_logger("feature_engineer")
 
@@ -53,6 +58,7 @@ class FeatureEngineer:
         start_date: str = None,
         end_date: str = None,
         target_days: list[int] = None,
+        incremental: bool = True,
     ) -> int:
         """
         단일 종목의 피처를 계산하여 feature_store에 저장
@@ -62,18 +68,35 @@ class FeatureEngineer:
             code: 종목코드
             start_date: 시작일 (없으면 전체)
             end_date: 종료일
+            target_days: 타겟 일수 목록
+            incremental: True면 마지막 계산일 이후 신규분만 계산
 
         Returns:
             저장된 레코드 수
         """
         with database.session() as session:
+            repo = MLRepository(session)
+            last_date = None
+
+            # 증분 모드: 마지막 계산일 확인
+            if incremental:
+                last_feature = repo.get_latest_features(market, code)
+                if last_feature:
+                    last_date = last_feature.date
+
             # 1. StockPrice 조회
             query = session.query(StockPrice).filter(
                 StockPrice.market == market,
                 StockPrice.code == code,
             )
-            if start_date:
+
+            if last_date:
+                # 증분: lookback 구간부터 조회
+                lookback_start = last_date - timedelta(days=_LOOKBACK_CALENDAR_DAYS)
+                query = query.filter(StockPrice.date >= lookback_start)
+            elif start_date:
                 query = query.filter(StockPrice.date >= start_date)
+
             if end_date:
                 query = query.filter(StockPrice.date <= end_date)
 
@@ -85,6 +108,12 @@ class FeatureEngineer:
                     "compute_features",
                 )
                 return 0
+
+            # 증분: 새 데이터 없으면 스킵
+            if last_date:
+                max_price_date = rows[-1].date
+                if max_price_date <= last_date:
+                    return 0
 
             # 2. DataFrame 변환
             df = pd.DataFrame([{
@@ -100,13 +129,19 @@ class FeatureEngineer:
             if len(df) < 60:
                 return 0
 
-            # 3. 피처 계산
+            # 3. 피처 계산 (lookback 포함 전체 구간)
             features_df = self._compute_all_features(df, target_days=target_days)
 
             # 3.5 재무 피처 병합 (Phase 2)
             features_df = self._merge_fundamental_features(
                 features_df, market, code, session,
             )
+
+            # 증분: 신규분만 필터링
+            if last_date:
+                features_df = features_df[features_df["date"] > last_date]
+                if features_df.empty:
+                    return 0
 
             # 4. feature_store 레코드 생성
             records = []
@@ -131,10 +166,10 @@ class FeatureEngineer:
                 records.append(record)
 
             # 5. DB 저장
-            repo = MLRepository(session)
             saved = repo.upsert_features(records)
+            mode = "증분" if last_date else "전체"
             logger.info(
-                f"피처 저장 완료: {market}:{code} ({saved}행)",
+                f"피처 저장 완료 ({mode}): {market}:{code} ({saved}행)",
                 "compute_features",
             )
             return saved
@@ -145,12 +180,16 @@ class FeatureEngineer:
         start_date: str = None,
         end_date: str = None,
         target_days: list[int] = None,
+        incremental: bool = True,
     ) -> dict:
         """
         마켓 전체 종목의 피처를 계산
 
+        Args:
+            incremental: True면 종목별 마지막 계산일 이후 신규분만 계산
+
         Returns:
-            {"total": N, "success": N, "failed": N}
+            {"total": N, "success": N, "failed": N, "skipped": N}
         """
         from models import StockInfo
 
@@ -164,28 +203,34 @@ class FeatureEngineer:
 
         if not codes:
             logger.warning(f"종목 없음: {market}", "compute_all")
-            return {"total": 0, "success": 0, "failed": 0}
+            return {"total": 0, "success": 0, "failed": 0, "skipped": 0}
 
         total = len(codes)
         success = 0
         failed = 0
+        skipped = 0
 
         for code in codes:
             try:
-                count = self.compute_features(market, code, start_date, end_date, target_days=target_days)
+                count = self.compute_features(
+                    market, code, start_date, end_date,
+                    target_days=target_days,
+                    incremental=incremental,
+                )
                 if count > 0:
                     success += 1
                 else:
-                    failed += 1
+                    skipped += 1
             except Exception as e:
                 logger.warning(f"피처 계산 실패: {market}:{code} - {e}", "compute_all")
                 failed += 1
 
+        mode = "증분" if incremental else "전체"
         logger.info(
-            f"전체 피처 계산 완료: {market} (total={total}, success={success}, failed={failed})",
+            f"피처 계산 완료 ({mode}): {market} (total={total}, success={success}, skipped={skipped}, failed={failed})",
             "compute_all",
         )
-        return {"total": total, "success": success, "failed": failed}
+        return {"total": total, "success": success, "failed": failed, "skipped": skipped}
 
     def _merge_fundamental_features(
         self,

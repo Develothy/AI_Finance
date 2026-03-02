@@ -31,7 +31,10 @@ from config import settings
 from core import get_logger
 from db import database
 from data_collector import DataScheduler, SCHEDULER_AVAILABLE
-from models import StockPrice, StockInfo, ScheduleJob, ScheduleLog, MLTrainConfig
+from models import (
+    StockPrice, StockInfo, ScheduleJob, ScheduleLog, MLTrainConfig,
+    StockFundamental, FinancialStatement, FeatureStore, MLModel, MLPrediction,
+)
 
 logger = get_logger("admin")
 
@@ -95,6 +98,47 @@ def db_status():
                     func.count(func.distinct(StockInfo.sector))
                 ).scalar() or 0
 
+            # stock_fundamental 통계
+            sf_count = session.query(func.count(StockFundamental.id)).scalar() or 0
+            sf_earliest = sf_latest = None
+            sf_markets = []
+            sf_code_count = 0
+            if sf_count > 0:
+                sf_earliest_dt = session.query(func.min(StockFundamental.date)).scalar()
+                sf_latest_dt = session.query(func.max(StockFundamental.date)).scalar()
+                sf_earliest = sf_earliest_dt.strftime("%Y-%m-%d") if sf_earliest_dt else None
+                sf_latest = sf_latest_dt.strftime("%Y-%m-%d") if sf_latest_dt else None
+                sf_markets = [r[0] for r in session.query(StockFundamental.market).distinct().all()]
+                sf_code_count = session.query(func.count(func.distinct(StockFundamental.code))).scalar() or 0
+
+            # financial_statement 통계
+            fs_count = session.query(func.count(FinancialStatement.id)).scalar() or 0
+            fs_markets = []
+            fs_code_count = 0
+            fs_period_count = 0
+            if fs_count > 0:
+                fs_markets = [r[0] for r in session.query(FinancialStatement.market).distinct().all()]
+                fs_code_count = session.query(func.count(func.distinct(FinancialStatement.code))).scalar() or 0
+                fs_period_count = session.query(func.count(func.distinct(FinancialStatement.period_date))).scalar() or 0
+
+            # feature_store 통계
+            feat_count = session.query(func.count(FeatureStore.id)).scalar() or 0
+            feat_earliest = feat_latest = None
+            feat_markets = []
+            feat_code_count = 0
+            if feat_count > 0:
+                feat_earliest_dt = session.query(func.min(FeatureStore.date)).scalar()
+                feat_latest_dt = session.query(func.max(FeatureStore.date)).scalar()
+                feat_earliest = feat_earliest_dt.strftime("%Y-%m-%d") if feat_earliest_dt else None
+                feat_latest = feat_latest_dt.strftime("%Y-%m-%d") if feat_latest_dt else None
+                feat_markets = [r[0] for r in session.query(FeatureStore.market).distinct().all()]
+                feat_code_count = session.query(func.count(func.distinct(FeatureStore.code))).scalar() or 0
+
+            # ml_model / ml_prediction 통계
+            ml_model_count = session.query(func.count(MLModel.id)).scalar() or 0
+            ml_active_count = session.query(func.count(MLModel.id)).filter(MLModel.is_active.is_(True)).scalar() or 0
+            ml_pred_count = session.query(func.count(MLPrediction.id)).scalar() or 0
+
             return DBResponse(
                 connected=True,
                 db_type=settings.DB_TYPE,
@@ -110,6 +154,33 @@ def db_status():
                         row_count=si_count,
                         markets=si_markets,
                         sector_count=si_sector_count,
+                    ),
+                    "stock_fundamental": TableStats(
+                        row_count=sf_count,
+                        earliest_date=sf_earliest,
+                        latest_date=sf_latest,
+                        markets=sf_markets,
+                        code_count=sf_code_count,
+                    ),
+                    "financial_statement": TableStats(
+                        row_count=fs_count,
+                        markets=fs_markets,
+                        code_count=fs_code_count,
+                        period_count=fs_period_count,
+                    ),
+                    "feature_store": TableStats(
+                        row_count=feat_count,
+                        earliest_date=feat_earliest,
+                        latest_date=feat_latest,
+                        markets=feat_markets,
+                        code_count=feat_code_count,
+                    ),
+                    "ml_model": TableStats(
+                        row_count=ml_model_count,
+                        active_count=ml_active_count,
+                    ),
+                    "ml_prediction": TableStats(
+                        row_count=ml_pred_count,
                     ),
                 },
             )

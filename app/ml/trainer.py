@@ -34,8 +34,8 @@ from .tuner import tune_hyperparameters
 
 logger = get_logger("trainer")
 
-# 저장 디렉토리
-SAVED_MODELS_DIR = Path(os.path.dirname(os.path.dirname(__file__))) / "saved_models"
+# 저장 디렉토리 — 환경변수 MODEL_SAVE_DIR 우선, 없으면 app/saved_models
+SAVED_MODELS_DIR = Path(os.environ.get("MODEL_SAVE_DIR", Path(os.path.dirname(os.path.dirname(__file__))) / "saved_models"))
 
 
 def _get_classifier(algorithm: str, params: dict):
@@ -94,6 +94,11 @@ class ModelTrainer:
             if len(df) < 100:
                 raise ValueError(f"학습 데이터 부족: {len(df)}행 (최소 100행)")
 
+            # 2.5 NaN 비율 높은 피처 자동 제외
+            features, dropped = self._filter_features_by_nan(df, features)
+            if not features:
+                raise ValueError("사용 가능한 피처 없음 (모든 피처 NaN 비율 초과)")
+
             # 3. 시계열 분할
             train_df, val_df, test_df = self._split_data(df, train_ratio, val_ratio)
 
@@ -101,8 +106,11 @@ class ModelTrainer:
             y_train = train_df[target_column].values
             X_val = val_df[features].values
             y_val = val_df[target_column].values
-            X_test = test_df[features].values
-            y_test = test_df[target_column].values
+
+            has_test = len(test_df) > 0
+            if has_test:
+                X_test = test_df[features].values
+                y_test = test_df[target_column].values
 
             # 4. NaN 처리 — RandomForest는 NaN 불가, 중앙값 impute
             if algorithm == "random_forest":
@@ -110,15 +118,17 @@ class ModelTrainer:
                 imputer = SimpleImputer(strategy="median")
                 X_train = imputer.fit_transform(X_train)
                 X_val = imputer.transform(X_val)
-                X_test = imputer.transform(X_test)
+                if has_test:
+                    X_test = imputer.transform(X_test)
 
             # 5. 스케일링
             scaler = RobustScaler()
             X_train = scaler.fit_transform(X_train)
             X_val = scaler.transform(X_val)
-            X_test = scaler.transform(X_test)
+            if has_test:
+                X_test = scaler.transform(X_test)
 
-            # 5. 하이퍼파라미터 튜닝
+            # 6. 하이퍼파라미터 튜닝
             best_params = {}
             tune_result = None
             if optuna_trials > 0:
@@ -127,23 +137,28 @@ class ModelTrainer:
                 )
                 best_params = tune_result["best_params"]
 
-            # 6. 최적 파라미터로 학습
+            # 7. 최적 파라미터로 학습
             model = _get_classifier(algorithm, best_params)
             model.fit(X_train, y_train)
 
-            # 7. 평가 (테스트 세트)
-            y_pred = model.predict(X_test)
-            y_proba = model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else None
+            # 8. 평가 (test가 없으면 val로 평가)
+            X_eval = X_test if has_test else X_val
+            y_eval = y_test if has_test else y_val
+            if not has_test:
+                logger.info("test 세트 없음 → val 세트로 평가", "train")
+
+            y_pred = model.predict(X_eval)
+            y_proba = model.predict_proba(X_eval)[:, 1] if hasattr(model, "predict_proba") else None
 
             metrics = {
-                "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
-                "precision": round(float(precision_score(y_test, y_pred, zero_division=0)), 4),
-                "recall": round(float(recall_score(y_test, y_pred, zero_division=0)), 4),
-                "f1": round(float(f1_score(y_test, y_pred, zero_division=0)), 4),
+                "accuracy": round(float(accuracy_score(y_eval, y_pred)), 4),
+                "precision": round(float(precision_score(y_eval, y_pred, zero_division=0)), 4),
+                "recall": round(float(recall_score(y_eval, y_pred, zero_division=0)), 4),
+                "f1": round(float(f1_score(y_eval, y_pred, zero_division=0)), 4),
             }
             if y_proba is not None:
                 try:
-                    metrics["auc_roc"] = round(float(roc_auc_score(y_test, y_proba)), 4)
+                    metrics["auc_roc"] = round(float(roc_auc_score(y_eval, y_proba)), 4)
                 except ValueError:
                     metrics["auc_roc"] = None
 
@@ -253,6 +268,37 @@ class ModelTrainer:
                     "_load_data",
                 )
             return df
+
+    def _filter_features_by_nan(
+        self, df: pd.DataFrame, features: list[str], threshold: float = 0.5,
+    ) -> tuple[list[str], list[str]]:
+        """NaN 비율이 threshold 이상인 피처를 제외
+
+        Returns:
+            (사용할 피처 목록, 제외된 피처 목록)
+        """
+        n_rows = len(df)
+        usable = []
+        dropped = []
+
+        for col in features:
+            nan_ratio = df[col].isna().sum() / n_rows
+            if nan_ratio >= threshold:
+                dropped.append(col)
+            else:
+                usable.append(col)
+
+        if dropped:
+            logger.info(
+                f"NaN 비율 초과로 피처 제외 ({len(dropped)}개, threshold={threshold}): {dropped}",
+                "_filter_features",
+            )
+            logger.info(
+                f"사용 피처: {len(usable)}개 / 전체 {len(features)}개",
+                "_filter_features",
+            )
+
+        return usable, dropped
 
     def _split_data(
         self, df: pd.DataFrame, train_ratio: float, val_ratio: float

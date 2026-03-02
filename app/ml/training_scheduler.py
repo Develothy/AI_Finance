@@ -131,13 +131,24 @@ def run_training_schedule(
                 logger.error(f"Step 3 실패: {market} - {e}", "training_schedule")
 
     # Step 4) 피처 계산 - target_days 전달
+    #   DART 새로 수집했으면 forward-fill 범위 변경 → 전체 재계산
+    #   그 외에는 증분 계산 (신규 날짜만)
     if include_feature_compute:
-        logger.info("Step 4: 피처 계산 시작", "training_schedule")
+        incremental = not include_dart_collect
+        mode = "증분" if incremental else "전체(DART 수집 후)"
+        logger.info(f"Step 4: 피처 계산 시작 ({mode})", "training_schedule")
         fe = FeatureEngineer()
         for market in markets:
             try:
-                fe.compute_all(market=market, target_days=target_days)
-                logger.info(f"Step 4 완료: {market}", "training_schedule")
+                result = fe.compute_all(
+                    market=market, target_days=target_days,
+                    incremental=incremental,
+                )
+                logger.info(
+                    f"Step 4 완료: {market} ({mode}, "
+                    f"success={result['success']}, skipped={result['skipped']})",
+                    "training_schedule",
+                )
             except Exception as e:
                 logger.error(f"Step 4 실패: {market} - {e}", "training_schedule")
 

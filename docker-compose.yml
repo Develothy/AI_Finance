@@ -38,6 +38,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-quant1234}
       - DEV_MODE=${DEV_MODE:-true}
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - MODEL_SAVE_DIR=/app/saved_models
     ports:
       - "8000:8000"
     volumes:

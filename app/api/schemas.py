@@ -164,6 +164,8 @@ class TableStats(BaseModel):
     markets: list[str] = []
     code_count: Optional[int] = None
     sector_count: Optional[int] = None
+    period_count: Optional[int] = None
+    active_count: Optional[int] = None
 
 
 class DBResponse(BaseModel):

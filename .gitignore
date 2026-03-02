@@ -45,6 +45,7 @@ data/
 *.pth
 *.h5
 *.onnx
+*.joblib
 
 # 테스트
 .pytest_cache/

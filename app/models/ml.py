@@ -77,6 +77,11 @@ class FeatureStore(ModelBase):
     krw_usd = Column(Numeric(10, 4))
     vix = Column(Numeric(8, 4))
     kospi_index = Column(Numeric(10, 2))
+    us_10y = Column(Numeric(8, 4))
+    kr_3y = Column(Numeric(8, 4))
+    sp500 = Column(Numeric(10, 2))
+    wti = Column(Numeric(10, 2))
+    gold = Column(Numeric(10, 2))
 
     # 타겟 변수
     target_class_1d = Column(Integer)

@@ -231,7 +231,7 @@ class ScheduleJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_job_type(self):
-        valid_types = ("data_collect", "ml_train", "fundamental_collect")
+        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect")
         if self.job_type not in valid_types:
             raise ValueError(f"job_type은 {valid_types} 중 하나여야 합니다.")
         return self
@@ -495,6 +495,33 @@ class FundamentalSummaryResponse(BaseModel):
     code: str
     fundamental: Optional[StockFundamentalResponse] = None
     financial_statement: Optional[FinancialStatementResponse] = None
+
+
+# ============================================================
+# 거시경제 지표 스키마 (Phase 3)
+# ============================================================
+
+class MacroCollectRequest(BaseModel):
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    days_back: int = 30
+
+
+class MacroCollectResponse(BaseModel):
+    total: int = 0
+    success: int = 0
+    failed: int = 0
+    skipped: int = 0
+    saved: int = 0
+    message: str = ""
+
+
+class MacroIndicatorResponse(BaseModel):
+    indicator_name: str
+    date: Optional[str] = None
+    value: Optional[float] = None
+    change_pct: Optional[float] = None
+    source: Optional[str] = None
 
 
 # ============================================================

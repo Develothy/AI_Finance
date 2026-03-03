@@ -14,7 +14,7 @@ import pandas as pd
 from core import get_logger
 from db import database
 from indicators import calc_sma, calc_ema, calc_rsi, calc_macd, calc_bollinger_bands, calc_obv
-from models import StockPrice, StockFundamental, FinancialStatement
+from models import StockPrice, StockFundamental, FinancialStatement, MacroIndicator
 from repositories import MLRepository
 
 # SMA60이 가장 긴 lookback → 캘린더일 120일 ≈ 영업일 80일
@@ -38,6 +38,24 @@ PHASE2_FEATURE_COLUMNS = PHASE1_FEATURE_COLUMNS + [
     "foreign_ratio", "inst_net_buy", "foreign_net_buy",
     "roe", "debt_ratio",
 ]
+
+# Phase 3 피처 컬럼 (Phase 2 + 거시 피처)
+PHASE3_FEATURE_COLUMNS = PHASE2_FEATURE_COLUMNS + [
+    "krw_usd", "vix", "kospi_index",
+    "us_10y", "kr_3y", "sp500", "wti", "gold",
+]
+
+# indicator_name → feature_store 컬럼명 매핑
+_MACRO_COLUMN_MAP = {
+    "KRW_USD": "krw_usd",
+    "VIX": "vix",
+    "KOSPI": "kospi_index",
+    "SP500": "sp500",
+    "US_10Y": "us_10y",
+    "KR_3Y": "kr_3y",
+    "WTI": "wti",
+    "GOLD": "gold",
+}
 
 TARGET_COLUMNS = [
     "target_class_1d", "target_class_5d",
@@ -136,6 +154,9 @@ class FeatureEngineer:
             features_df = self._merge_fundamental_features(
                 features_df, market, code, session,
             )
+
+            # 3.6 거시 피처 병합 (Phase 3)
+            features_df = self._merge_macro_features(features_df, session)
 
             # 증분: 신규분만 필터링
             if last_date:
@@ -308,6 +329,67 @@ class FeatureEngineer:
             for col in ["roe", "debt_ratio"]:
                 if col not in df.columns:
                     df[col] = None
+
+        return df
+
+    def _merge_macro_features(
+        self,
+        df: pd.DataFrame,
+        session,
+    ) -> pd.DataFrame:
+        """
+        거시 피처를 기존 피처 DataFrame에 병합 (Phase 3)
+
+        macro_indicator 테이블에서 날짜 기준으로 피벗 후 left join.
+        데이터 없으면 NULL 유지 (graceful).
+        """
+        if df.empty:
+            return df
+
+        min_date = df["date"].min()
+        max_date = df["date"].max()
+
+        macro_rows = (
+            session.query(MacroIndicator)
+            .filter(
+                MacroIndicator.date >= min_date,
+                MacroIndicator.date <= max_date,
+            )
+            .all()
+        )
+
+        if macro_rows:
+            macro_df = pd.DataFrame([{
+                "date": r.date,
+                "indicator_name": r.indicator_name,
+                "value": float(r.value) if r.value else None,
+            } for r in macro_rows])
+
+            # 피벗: (date) × (indicator_name) → value
+            pivot = macro_df.pivot_table(
+                index="date",
+                columns="indicator_name",
+                values="value",
+                aggfunc="first",
+            )
+
+            # indicator_name → feature_store 컬럼명 매핑
+            rename = {k: v for k, v in _MACRO_COLUMN_MAP.items() if k in pivot.columns}
+            pivot = pivot.rename(columns=rename)
+            pivot = pivot.reset_index()
+
+            # 필요 없는 컬럼 제거 (매핑에 없는 지표)
+            keep_cols = ["date"] + [v for v in _MACRO_COLUMN_MAP.values() if v in pivot.columns]
+            pivot = pivot[keep_cols]
+
+            df = df.merge(pivot, on="date", how="left")
+        else:
+            logger.info("거시지표 데이터 없음 — NULL 유지", "_merge_macro_features")
+
+        # 컬럼 보장 (데이터 없어도 컬럼은 존재해야 함)
+        for col in _MACRO_COLUMN_MAP.values():
+            if col not in df.columns:
+                df[col] = None
 
         return df
 

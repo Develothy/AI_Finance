@@ -113,6 +113,8 @@ class DataScheduler:
                         self.add_ml_train_job(job_model, config)
                     elif job_model.job_type == "fundamental_collect":
                         self.add_fundamental_job(job_model)
+                    elif job_model.job_type == "macro_collect":
+                        self.add_macro_job(job_model)
                     else:
                         self.add_job_from_model(job_model)
                     loaded += 1
@@ -426,6 +428,76 @@ class DataScheduler:
         logger.info(f"재무 데이터 수집 스케줄 등록", "add_fundamental_job",
                     {"job_id": job_name, "market": market})
 
+    def add_macro_job(self, job_model):
+        """거시경제 지표 수집 크론 잡 등록 (Phase 3)
+
+        Args:
+            job_model: ScheduleJob 모델 (job_type="macro_collect")
+        """
+        job_name = job_model.job_name
+        cron_expr = job_model.cron_expr
+        days_back = job_model.days_back or 7
+
+        def macro_job_func():
+            from models import ScheduleJob as SJ, ScheduleLog
+            from services import MacroService
+
+            logger.info(f"거시지표 수집 스케줄 시작", "macro_cron_job",
+                        {"job_id": job_name})
+
+            log_id = None
+            with database.session() as session:
+                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
+                if job_row:
+                    log = ScheduleLog(
+                        job_id=job_row.id,
+                        started_at=datetime.now(),
+                        status="running",
+                        trigger_by="scheduler",
+                    )
+                    session.add(log)
+                    session.flush()
+                    log_id = log.id
+
+            try:
+                svc = MacroService()
+                result = svc.collect(days_back=days_back)
+
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "success"
+                            log_entry.success_count = result.get("success", 0)
+                            log_entry.failed_count = result.get("failed", 0)
+                            log_entry.db_saved_count = result.get("saved", 0)
+                            log_entry.message = result.get("message", "")[:500]
+
+            except Exception as e:
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "failed"
+                            log_entry.message = str(e)[:500]
+                logger.error(f"거시지표 수집 스케줄 실패", "macro_cron_job",
+                             {"error": str(e)})
+
+        trigger = parse_cron_expr(cron_expr)
+        job = self.scheduler.add_job(
+            macro_job_func, trigger=trigger, id=job_name,
+            replace_existing=True, max_instances=1,
+        )
+        self._jobs[job_name] = job
+        logger.info(f"거시지표 수집 스케줄 등록", "add_macro_job",
+                    {"job_id": job_name})
+
     def add_job_from_model(self, job_model):
         """DB ScheduleJob 모델에서 작업 등록"""
         self.add_cron_job(
@@ -497,6 +569,8 @@ class DataScheduler:
                     self.add_ml_train_job(job_model, ml_config)
                 elif job_type == "fundamental_collect":
                     self.add_fundamental_job(job_model)
+                elif job_type == "macro_collect":
+                    self.add_macro_job(job_model)
                 else:
                     self.add_job_from_model(job_model)
             elif action == "update":

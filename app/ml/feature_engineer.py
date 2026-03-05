@@ -43,6 +43,7 @@ PHASE2_FEATURE_COLUMNS = PHASE1_FEATURE_COLUMNS + [
 PHASE3_FEATURE_COLUMNS = PHASE2_FEATURE_COLUMNS + [
     "krw_usd", "vix", "kospi_index",
     "us_10y", "kr_3y", "sp500", "wti", "gold",
+    "fed_rate", "usd_index", "us_cpi",
 ]
 
 # indicator_name → feature_store 컬럼명 매핑
@@ -55,7 +56,13 @@ _MACRO_COLUMN_MAP = {
     "KR_3Y": "kr_3y",
     "WTI": "wti",
     "GOLD": "gold",
+    "FED_RATE": "fed_rate",
+    "USD_INDEX": "usd_index",
+    "US_CPI": "us_cpi",
 }
+
+# 월별/분기별 지표 — forward-fill 대상 (일별 지표는 left join만으로 충분)
+_MACRO_FFILL_COLUMNS = {"us_cpi"}
 
 TARGET_COLUMNS = [
     "target_class_1d", "target_class_5d",
@@ -378,11 +385,21 @@ class FeatureEngineer:
             pivot = pivot.rename(columns=rename)
             pivot = pivot.reset_index()
 
+            # 월별 지표 forward-fill (CPI 등: 발표일 이후 다음 발표까지 동일 값 유지)
+            for col in _MACRO_FFILL_COLUMNS:
+                if col in pivot.columns:
+                    pivot[col] = pivot[col].ffill()
+
             # 필요 없는 컬럼 제거 (매핑에 없는 지표)
             keep_cols = ["date"] + [v for v in _MACRO_COLUMN_MAP.values() if v in pivot.columns]
             pivot = pivot[keep_cols]
 
             df = df.merge(pivot, on="date", how="left")
+
+            # merge 후에도 월별 지표는 forward-fill (feature_store 날짜에 빈 날 채우기)
+            for col in _MACRO_FFILL_COLUMNS:
+                if col in df.columns:
+                    df[col] = df[col].ffill()
         else:
             logger.info("거시지표 데이터 없음 — NULL 유지", "_merge_macro_features")
 

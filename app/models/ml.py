@@ -82,6 +82,9 @@ class FeatureStore(ModelBase):
     sp500 = Column(Numeric(10, 2))
     wti = Column(Numeric(10, 2))
     gold = Column(Numeric(10, 2))
+    fed_rate = Column(Numeric(8, 4))      # 미국 기준금리 (FRED DFF)
+    usd_index = Column(Numeric(10, 4))    # 달러 인덱스 (FRED DTWEXBGS)
+    us_cpi = Column(Numeric(10, 4))       # 미국 CPI (FRED CPIAUCSL, 월별 forward-fill)
 
     # 타겟 변수
     target_class_1d = Column(Integer)

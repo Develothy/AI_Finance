@@ -4,7 +4,7 @@
 
 yfinance: KRW/USD, VIX, KOSPI, S&P500, WTI, Gold, US 10Y (7개)
 FinanceDataReader: KR 3Y 국고채 (1개)
-FRED: 예비 (현재 미사용 — 향후 GDP/CPI 등 확장용)
+FRED: 기준금리(DFF), 달러인덱스(DTWEXBGS), CPI(CPIAUCSL) (3개)
 """
 
 from datetime import datetime, timedelta
@@ -29,6 +29,9 @@ INDICATOR_TO_COLUMN = {
     "KR_3Y": "kr_3y",
     "WTI": "wti",
     "GOLD": "gold",
+    "FED_RATE": "fed_rate",
+    "USD_INDEX": "usd_index",
+    "US_CPI": "us_cpi",
 }
 
 
@@ -60,11 +63,20 @@ class MacroFetcher:
     # FinanceDataReader 심볼 (INVESTING: 프리픽스로 Investing.com 강제)
     FDR_SYMBOLS = {"INVESTING:KR3YT=RR": "KR_3Y"}
 
-    # FRED series_id (향후 GDP/CPI 등 확장용, 현재 비어있음)
-    FRED_SERIES: dict[str, str] = {}
+    # FRED series_id → indicator_name
+    FRED_SERIES = {
+        "DFF": "FED_RATE",          # 미국 기준금리 (일별)
+        "DTWEXBGS": "USD_INDEX",    # 달러 인덱스 (일별)
+        "CPIAUCSL": "US_CPI",       # 미국 CPI (월별 → forward-fill)
+    }
 
     def __init__(self):
         self.fred_available = bool(settings.FRED_API_KEY) and len(self.FRED_SERIES) > 0
+        if not self.fred_available and len(self.FRED_SERIES) > 0:
+            logger.warning(
+                "FRED API 키 미설정 — FED_RATE, USD_INDEX, US_CPI 수집 비활성화",
+                "__init__",
+            )
 
     def fetch_all(
         self,
@@ -110,7 +122,7 @@ class MacroFetcher:
             failed_count += len(self.FDR_SYMBOLS)
             logger.error(f"FDR 수집 실패: {e}", "fetch_all")
 
-        # 3) FRED (현재 비어있음 — 향후 확장용)
+        # 3) FRED (3개: 기준금리, 달러인덱스, CPI)
         if self.fred_available:
             try:
                 fred_records = self._fetch_fred(start_date, end_date)
@@ -238,7 +250,11 @@ class MacroFetcher:
 
     @retry(max_attempts=3, delay=1.0, backoff=2.0, module="macro_fetcher")
     def _fetch_fred(self, start_date: str, end_date: str) -> list[dict]:
-        """FRED API 수집 (향후 확장용)"""
+        """FRED API 수집"""
+        import os
+        import certifi
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+
         from fredapi import Fred
 
         fred = Fred(api_key=settings.FRED_API_KEY)

@@ -231,7 +231,7 @@ class ScheduleJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_job_type(self):
-        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect")
+        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect")
         if self.job_type not in valid_types:
             raise ValueError(f"job_type은 {valid_types} 중 하나여야 합니다.")
         return self
@@ -522,6 +522,45 @@ class MacroIndicatorResponse(BaseModel):
     value: Optional[float] = None
     change_pct: Optional[float] = None
     source: Optional[str] = None
+
+
+# ============================================================
+# 뉴스 센티먼트 스키마 (Phase 4)
+# ============================================================
+
+class NewsCollectRequest(BaseModel):
+    market: str = "KR"
+    codes: Optional[list[list[str]]] = None  # [["005930", "삼성전자"], ...]
+    include_market_news: bool = True
+    max_items_per_code: int = 50
+
+
+class NewsCollectResponse(BaseModel):
+    total_codes: int = 0
+    stock_success: int = 0
+    stock_failed: int = 0
+    market_news: int = 0
+    saved: int = 0
+    message: str = ""
+
+
+class NewsArticleResponse(BaseModel):
+    id: Optional[int] = None
+    date: Optional[str] = None
+    market: Optional[str] = None
+    code: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    url: Optional[str] = None
+    source: Optional[str] = None
+    sentiment_score: Optional[float] = None
+    sentiment_label: Optional[str] = None
+
+
+class NewsSentimentSummaryResponse(BaseModel):
+    date: Optional[str] = None
+    sentiment: Optional[float] = None
+    volume: Optional[int] = None
 
 
 # ============================================================

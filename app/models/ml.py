@@ -86,6 +86,13 @@ class FeatureStore(ModelBase):
     usd_index = Column(Numeric(10, 4))    # 달러 인덱스 (FRED DTWEXBGS)
     us_cpi = Column(Numeric(10, 4))       # 미국 CPI (FRED CPIAUCSL, 월별 forward-fill)
 
+    # 뉴스 센티먼트 피처 (Phase 4)
+    news_sentiment = Column(Numeric(6, 4))       # 종목별 일평균 센티먼트 (-1 ~ +1)
+    news_volume = Column(Integer)                 # 종목별 일간 뉴스 건수
+    news_sentiment_std = Column(Numeric(6, 4))    # 뉴스 센티먼트 표준편차
+    market_sentiment = Column(Numeric(6, 4))      # 시장 전체 일평균 센티먼트
+    market_news_volume = Column(Integer)           # 시장 전체 일간 뉴스 건수
+
     # 타겟 변수
     target_class_1d = Column(Integer)
     target_class_5d = Column(Integer)

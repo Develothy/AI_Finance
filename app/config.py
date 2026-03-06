@@ -74,6 +74,10 @@ class _Settings:
     # FRED (거시지표)
     FRED_API_KEY: Optional[str] = None
 
+    # Naver News API (Phase 4)
+    NAVER_CLIENT_ID: Optional[str] = None
+    NAVER_CLIENT_SECRET: Optional[str] = None
+
     # 스케줄러
     SCHEDULER_TIMEZONE: str = "Asia/Seoul"
     DATA_FETCH_HOUR: int = 18

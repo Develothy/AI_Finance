@@ -3,6 +3,7 @@ from models.schedule import ScheduleJob, ScheduleLog, MLTrainConfig
 from models.ml import FeatureStore, MLModel, MLTrainingLog, MLPrediction
 from models.fundamental import StockFundamental, FinancialStatement
 from models.macro import MacroIndicator
+from models.news import NewsSentiment
 
 __all__ = [
     "StockPrice",
@@ -17,4 +18,5 @@ __all__ = [
     "StockFundamental",
     "FinancialStatement",
     "MacroIndicator",
+    "NewsSentiment",
 ]

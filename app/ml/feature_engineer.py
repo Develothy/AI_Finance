@@ -16,6 +16,7 @@ from db import database
 from indicators import calc_sma, calc_ema, calc_rsi, calc_macd, calc_bollinger_bands, calc_obv
 from models import StockPrice, StockFundamental, FinancialStatement, MacroIndicator
 from repositories import MLRepository
+from repositories.news_repository import NewsRepository
 
 # SMA60이 가장 긴 lookback → 캘린더일 120일 ≈ 영업일 80일
 _LOOKBACK_CALENDAR_DAYS = 120
@@ -46,6 +47,12 @@ PHASE3_FEATURE_COLUMNS = PHASE2_FEATURE_COLUMNS + [
     "fed_rate", "usd_index", "us_cpi",
 ]
 
+# Phase 4 피처 컬럼 (Phase 3 + 뉴스 센티먼트 피처)
+PHASE4_FEATURE_COLUMNS = PHASE3_FEATURE_COLUMNS + [
+    "news_sentiment", "news_volume", "news_sentiment_std",
+    "market_sentiment", "market_news_volume",
+]
+
 # indicator_name → feature_store 컬럼명 매핑
 _MACRO_COLUMN_MAP = {
     "KRW_USD": "krw_usd",
@@ -63,6 +70,12 @@ _MACRO_COLUMN_MAP = {
 
 # 월별/분기별 지표 — forward-fill 대상 (일별 지표는 left join만으로 충분)
 _MACRO_FFILL_COLUMNS = {"us_cpi"}
+
+# Phase 4 뉴스 센티먼트 피처 컬럼
+_NEWS_FEATURE_COLUMNS = [
+    "news_sentiment", "news_volume", "news_sentiment_std",
+    "market_sentiment", "market_news_volume",
+]
 
 TARGET_COLUMNS = [
     "target_class_1d", "target_class_5d",
@@ -164,6 +177,11 @@ class FeatureEngineer:
 
             # 3.6 거시 피처 병합 (Phase 3)
             features_df = self._merge_macro_features(features_df, session)
+
+            # 3.7 뉴스 센티먼트 피처 병합 (Phase 4)
+            features_df = self._merge_news_features(
+                features_df, market, code, session,
+            )
 
             # 증분: 신규분만 필터링
             if last_date:
@@ -405,6 +423,47 @@ class FeatureEngineer:
 
         # 컬럼 보장 (데이터 없어도 컬럼은 존재해야 함)
         for col in _MACRO_COLUMN_MAP.values():
+            if col not in df.columns:
+                df[col] = None
+
+        return df
+
+    def _merge_news_features(
+        self,
+        df: pd.DataFrame,
+        market: str,
+        code: str,
+        session,
+    ) -> pd.DataFrame:
+        """
+        뉴스 센티먼트 피처를 기존 피처 DataFrame에 병합 (Phase 4)
+
+        1) 종목별 일별 센티먼트: news_sentiment, news_volume, news_sentiment_std
+        2) 시장 전체 일별 센티먼트: market_sentiment, market_news_volume
+        3) 데이터 없으면 NULL 유지 (graceful)
+        """
+        if df.empty:
+            return df
+
+        min_date = df["date"].min()
+        max_date = df["date"].max()
+
+        repo = NewsRepository(session)
+
+        # 1) 종목별 센티먼트
+        stock_sent = repo.get_daily_sentiment(code, min_date, max_date)
+        if stock_sent:
+            sent_df = pd.DataFrame(stock_sent)
+            df = df.merge(sent_df, on="date", how="left")
+
+        # 2) 시장 전체 센티먼트
+        market_sent = repo.get_daily_market_sentiment(min_date, max_date, market)
+        if market_sent:
+            msent_df = pd.DataFrame(market_sent)
+            df = df.merge(msent_df, on="date", how="left")
+
+        # 컬럼 보장 (데이터 없어도 컬럼은 존재해야 함)
+        for col in _NEWS_FEATURE_COLUMNS:
             if col not in df.columns:
                 df[col] = None
 

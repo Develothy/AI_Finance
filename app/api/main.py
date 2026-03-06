@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routes import stock_router, indicator_router, admin_router, ml_router, fundamental_router, macro_router
+from api.routes import stock_router, indicator_router, admin_router, ml_router, fundamental_router, macro_router, news_router
 from db import database
 import models  # noqa: F401 — ModelBase에 모든 모델 등록
 
@@ -69,6 +69,7 @@ app.include_router(admin_router)
 app.include_router(ml_router)
 app.include_router(fundamental_router)
 app.include_router(macro_router)
+app.include_router(news_router)
 
 
 @app.get("/")

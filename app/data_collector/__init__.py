@@ -59,6 +59,8 @@ from .kis_fetcher import KISClient
 from .dart_fetcher import DARTClient
 from .news_fetcher import NewsFetcher
 from .sentiment_analyzer import SentimentAnalyzer
+from .disclosure_fetcher import DisclosureFetcher
+from .krx_fetcher import KRXSupplyFetcher
 
 # 스케줄러는 선택적 import (apscheduler 필요)
 try:
@@ -94,6 +96,10 @@ __all__ = [
     # Phase 4 News
     "NewsFetcher",
     "SentimentAnalyzer",
+
+    # Phase 5 Disclosure + Supply/Demand
+    "DisclosureFetcher",
+    "KRXSupplyFetcher",
 
     # 스케줄러
     "DataScheduler",

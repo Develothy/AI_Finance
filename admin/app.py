@@ -19,7 +19,7 @@ st.set_page_config(
 
 from admin.pages import (
     server_status, db_status, log_viewer, config_viewer, scheduler_manager,
-    fundamental_manager, news_manager,
+    fundamental_manager, news_manager, disclosure_manager,
     ml_train_manager, ml_models, ml_predictions,
 )
 
@@ -31,6 +31,7 @@ PAGES = {
     "스케줄러 관리": scheduler_manager,
     "재무 데이터": fundamental_manager,
     "뉴스 관리": news_manager,
+    "공시/수급": disclosure_manager,
     "ML 학습 관리": ml_train_manager,
     "ML 모델 결과": ml_models,
     "ML 예측 테스트": ml_predictions,

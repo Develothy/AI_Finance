@@ -4,6 +4,7 @@ from models.ml import FeatureStore, MLModel, MLTrainingLog, MLPrediction
 from models.fundamental import StockFundamental, FinancialStatement
 from models.macro import MacroIndicator
 from models.news import NewsSentiment
+from models.disclosure import DartDisclosure, KrxSupplyDemand
 
 __all__ = [
     "StockPrice",
@@ -19,4 +20,6 @@ __all__ = [
     "FinancialStatement",
     "MacroIndicator",
     "NewsSentiment",
+    "DartDisclosure",
+    "KrxSupplyDemand",
 ]

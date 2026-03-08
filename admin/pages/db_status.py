@@ -82,6 +82,28 @@ def render():
 
     st.markdown("---")
 
+    # dart_disclosure
+    dd = tables.get("dart_disclosure", {})
+    st.subheader("dart_disclosure (DART 공시)")
+    dd1, dd2, dd3, dd4 = st.columns(4)
+    dd1.metric("레코드 수", f"{dd.get('row_count', 0):,}")
+    dd2.metric("종목 수", f"{dd.get('code_count', 0):,}")
+    dd3.metric("최초 날짜", dd.get("earliest_date", "-") or "-")
+    dd4.metric("최근 날짜", dd.get("latest_date", "-") or "-")
+
+    st.markdown("---")
+
+    # krx_supply_demand
+    ks = tables.get("krx_supply_demand", {})
+    st.subheader("krx_supply_demand (KRX 수급)")
+    ks1, ks2, ks3, ks4 = st.columns(4)
+    ks1.metric("레코드 수", f"{ks.get('row_count', 0):,}")
+    ks2.metric("종목 수", f"{ks.get('code_count', 0):,}")
+    ks3.metric("최초 날짜", ks.get("earliest_date", "-") or "-")
+    ks4.metric("최근 날짜", ks.get("latest_date", "-") or "-")
+
+    st.markdown("---")
+
     # feature_store
     ft = tables.get("feature_store", {})
     st.subheader("feature_store (ML 피처)")

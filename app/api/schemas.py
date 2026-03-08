@@ -231,7 +231,7 @@ class ScheduleJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_job_type(self):
-        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect")
+        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect", "disclosure_collect", "supply_collect")
         if self.job_type not in valid_types:
             raise ValueError(f"job_type은 {valid_types} 중 하나여야 합니다.")
         return self
@@ -561,6 +561,74 @@ class NewsSentimentSummaryResponse(BaseModel):
     date: Optional[str] = None
     sentiment: Optional[float] = None
     volume: Optional[int] = None
+
+
+# ============================================================
+# 공시 + 수급 스키마 (Phase 5)
+# ============================================================
+
+class DisclosureCollectRequest(BaseModel):
+    market: str = "KOSPI"
+    codes: Optional[list[str]] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    days: int = 60
+    analyze_sentiment: bool = True
+
+
+class DisclosureCollectResponse(BaseModel):
+    market: str
+    total: Optional[int] = None
+    success: Optional[int] = None
+    failed: Optional[int] = None
+    saved: int = 0
+    message: str = ""
+
+
+class SupplyDemandCollectRequest(BaseModel):
+    market: str = "KOSPI"
+    codes: Optional[list[str]] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    days: int = 60
+
+
+class SupplyDemandCollectResponse(BaseModel):
+    market: str
+    total: Optional[int] = None
+    success: Optional[int] = None
+    failed: Optional[int] = None
+    saved: int = 0
+    message: str = ""
+
+
+class DisclosureResponse(BaseModel):
+    id: Optional[int] = None
+    date: Optional[str] = None
+    market: Optional[str] = None
+    code: Optional[str] = None
+    corp_name: Optional[str] = None
+    report_nm: Optional[str] = None
+    rcept_no: Optional[str] = None
+    flr_nm: Optional[str] = None
+    rcept_dt: Optional[str] = None
+    report_type: Optional[str] = None
+    type_score: Optional[float] = None
+    sentiment_score: Optional[float] = None
+    sentiment_label: Optional[str] = None
+
+
+class SupplyDemandResponse(BaseModel):
+    id: Optional[int] = None
+    date: Optional[str] = None
+    market: Optional[str] = None
+    code: Optional[str] = None
+    short_selling_volume: Optional[int] = None
+    short_selling_ratio: Optional[float] = None
+    program_buy_volume: Optional[int] = None
+    program_sell_volume: Optional[int] = None
+    program_net_volume: Optional[int] = None
+    source: Optional[str] = None
 
 
 # ============================================================

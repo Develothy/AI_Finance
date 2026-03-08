@@ -206,5 +206,68 @@ class AdminAPIClient:
     def get_financial_statements(_self, code: str, market: str = "KOSPI", limit: int = 20) -> list:
         return _self._get(f"/fundamental/{code}/financial", params={"market": market, "limit": limit})
 
+    # ── 공시/수급 ────────────────────────────────────
+
+    def collect_disclosures(
+        _self,
+        market: str = "KOSPI",
+        codes: list[str] = None,
+        days: int = 60,
+        analyze_sentiment: bool = True,
+    ) -> dict:
+        json_data = {"market": market, "days": days, "analyze_sentiment": analyze_sentiment}
+        if codes:
+            json_data["codes"] = codes
+        url = f"{_self.base_url}/disclosure/collect"
+        resp = requests.post(url, json=json_data, timeout=600)
+        resp.raise_for_status()
+        return resp.json()
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def get_disclosures(
+        _self,
+        code: str,
+        market: str = "KOSPI",
+        start_date: str = None,
+        end_date: str = None,
+        limit: int = 100,
+    ) -> list:
+        params = {"market": market, "code": code, "limit": limit}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return _self._get("/disclosure/list", params)
+
+    def collect_supply_demand(
+        _self,
+        market: str = "KOSPI",
+        codes: list[str] = None,
+        days: int = 60,
+    ) -> dict:
+        json_data = {"market": market, "days": days}
+        if codes:
+            json_data["codes"] = codes
+        url = f"{_self.base_url}/disclosure/supply/collect"
+        resp = requests.post(url, json=json_data, timeout=600)
+        resp.raise_for_status()
+        return resp.json()
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def get_supply_demand(
+        _self,
+        market: str,
+        code: str,
+        start_date: str = None,
+        end_date: str = None,
+        limit: int = 100,
+    ) -> list:
+        params = {"limit": limit}
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return _self._get(f"/disclosure/supply/{market}/{code}", params)
+
 
 admin_client = AdminAPIClient()

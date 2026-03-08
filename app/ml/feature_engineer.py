@@ -17,6 +17,7 @@ from indicators import calc_sma, calc_ema, calc_rsi, calc_macd, calc_bollinger_b
 from models import StockPrice, StockFundamental, FinancialStatement, MacroIndicator
 from repositories import MLRepository
 from repositories.news_repository import NewsRepository
+from repositories.disclosure_repository import DisclosureRepository
 
 # SMA60이 가장 긴 lookback → 캘린더일 120일 ≈ 영업일 80일
 _LOOKBACK_CALENDAR_DAYS = 120
@@ -51,6 +52,14 @@ PHASE3_FEATURE_COLUMNS = PHASE2_FEATURE_COLUMNS + [
 PHASE4_FEATURE_COLUMNS = PHASE3_FEATURE_COLUMNS + [
     "news_sentiment", "news_volume", "news_sentiment_std",
     "market_sentiment", "market_news_volume",
+]
+
+# Phase 5 피처 컬럼 (Phase 4 + 공시 + 수급 피처)
+PHASE5_FEATURE_COLUMNS = PHASE4_FEATURE_COLUMNS + [
+    "disclosure_count_30d", "days_since_disclosure",
+    "disclosure_sentiment", "disclosure_type_score", "disclosure_volume_change",
+    "short_selling_volume", "short_selling_ratio",
+    "program_buy_volume", "program_sell_volume", "program_net_volume",
 ]
 
 # indicator_name → feature_store 컬럼명 매핑
@@ -180,6 +189,16 @@ class FeatureEngineer:
 
             # 3.7 뉴스 센티먼트 피처 병합 (Phase 4)
             features_df = self._merge_news_features(
+                features_df, market, code, session,
+            )
+
+            # 3.8 공시 피처 병합 (Phase 5A)
+            features_df = self._merge_disclosure_features(
+                features_df, market, code, session,
+            )
+
+            # 3.9 수급 피처 병합 (Phase 5B)
+            features_df = self._merge_supply_demand_features(
                 features_df, market, code, session,
             )
 
@@ -464,6 +483,175 @@ class FeatureEngineer:
 
         # 컬럼 보장 (데이터 없어도 컬럼은 존재해야 함)
         for col in _NEWS_FEATURE_COLUMNS:
+            if col not in df.columns:
+                df[col] = None
+
+        return df
+
+    def _merge_disclosure_features(
+        self,
+        df: pd.DataFrame,
+        market: str,
+        code: str,
+        session,
+    ) -> pd.DataFrame:
+        """
+        공시 피처를 기존 피처 DataFrame에 병합 (Phase 5A)
+
+        disclosure_count_30d: 최근 30일 공시 건수
+        days_since_disclosure: 마지막 공시 이후 일수
+        disclosure_sentiment: 30일 공시 제목 평균 센티먼트
+        disclosure_type_score: 30일 공시 유형 가중치 평균
+        disclosure_volume_change: 공시 빈도 변화율 (30d vs 이전 30d)
+        """
+        _DISC_COLS = [
+            "disclosure_count_30d", "days_since_disclosure",
+            "disclosure_sentiment", "disclosure_type_score",
+            "disclosure_volume_change",
+        ]
+
+        if df.empty:
+            for col in _DISC_COLS:
+                df[col] = None
+            return df
+
+        min_date = df["date"].min()
+        max_date = df["date"].max()
+
+        # 60일 lookback (30d + 이전 30d 비교용)
+        lookback_start = min_date - timedelta(days=60)
+
+        repo = DisclosureRepository(session)
+        disc_rows = repo.get_disclosures_for_features(
+            market, code, lookback_start, max_date,
+        )
+
+        if not disc_rows:
+            for col in _DISC_COLS:
+                df[col] = None
+            return df
+
+        # 공시 DataFrame 생성
+        disc_df = pd.DataFrame([{
+            "date": d.date,
+            "type_score": float(d.type_score) if d.type_score else 0.2,
+            "sentiment_score": float(d.sentiment_score) if d.sentiment_score else None,
+        } for d in disc_rows])
+
+        # 날짜별 피처 계산
+        disc_features = []
+        for _, row in df.iterrows():
+            feat_date = row["date"]
+            d30_start = feat_date - timedelta(days=30)
+            d60_start = feat_date - timedelta(days=60)
+
+            # 30일 윈도우
+            mask_30d = (disc_df["date"] >= d30_start) & (disc_df["date"] <= feat_date)
+            # 이전 30일 윈도우
+            mask_prev30d = (disc_df["date"] >= d60_start) & (disc_df["date"] < d30_start)
+
+            window_30d = disc_df[mask_30d]
+            window_prev30d = disc_df[mask_prev30d]
+
+            count_30d = len(window_30d)
+            count_prev30d = len(window_prev30d)
+
+            # days_since_disclosure
+            recent = disc_df[disc_df["date"] <= feat_date]
+            if not recent.empty:
+                last_disc_date = recent["date"].max()
+                days_since = (feat_date - last_disc_date).days
+            else:
+                days_since = None
+
+            # 센티먼트 / type_score 평균
+            if count_30d > 0:
+                sent_vals = window_30d["sentiment_score"].dropna()
+                avg_sent = float(sent_vals.mean()) if not sent_vals.empty else None
+                avg_type = float(window_30d["type_score"].mean())
+            else:
+                avg_sent = None
+                avg_type = None
+
+            # 빈도 변화율
+            if count_prev30d > 0:
+                vol_change = (count_30d - count_prev30d) / count_prev30d
+            elif count_30d > 0:
+                vol_change = 1.0  # 이전 기간 0건 → 100% 증가
+            else:
+                vol_change = None
+
+            disc_features.append({
+                "date": feat_date,
+                "disclosure_count_30d": count_30d,
+                "days_since_disclosure": days_since,
+                "disclosure_sentiment": round(avg_sent, 4) if avg_sent is not None else None,
+                "disclosure_type_score": round(avg_type, 2) if avg_type is not None else None,
+                "disclosure_volume_change": round(vol_change, 4) if vol_change is not None else None,
+            })
+
+        disc_feat_df = pd.DataFrame(disc_features)
+        df = df.merge(disc_feat_df, on="date", how="left")
+
+        for col in _DISC_COLS:
+            if col not in df.columns:
+                df[col] = None
+
+        return df
+
+    def _merge_supply_demand_features(
+        self,
+        df: pd.DataFrame,
+        market: str,
+        code: str,
+        session,
+    ) -> pd.DataFrame:
+        """
+        수급 피처를 기존 피처 DataFrame에 병합 (Phase 5B)
+
+        short_selling_volume, short_selling_ratio: 공매도
+        program_buy_volume, program_sell_volume, program_net_volume: 프로그램매매
+        """
+        _SUPPLY_COLS = [
+            "short_selling_volume", "short_selling_ratio",
+            "program_buy_volume", "program_sell_volume", "program_net_volume",
+        ]
+
+        if df.empty:
+            for col in _SUPPLY_COLS:
+                df[col] = None
+            return df
+
+        min_date = df["date"].min()
+        max_date = df["date"].max()
+
+        repo = DisclosureRepository(session)
+        supply_rows = repo.get_supply_demand_for_features(
+            market, code, min_date, max_date,
+        )
+
+        if supply_rows:
+            supply_df = pd.DataFrame([{
+                "date": s.date,
+                "short_selling_volume": int(s.short_selling_volume) if s.short_selling_volume else None,
+                "short_selling_ratio": float(s.short_selling_ratio) if s.short_selling_ratio else None,
+                "program_buy_volume": int(s.program_buy_volume) if s.program_buy_volume else None,
+                "program_sell_volume": int(s.program_sell_volume) if s.program_sell_volume else None,
+            } for s in supply_rows])
+
+            # program_net_volume 파생
+            supply_df["program_net_volume"] = (
+                supply_df["program_buy_volume"].fillna(0) -
+                supply_df["program_sell_volume"].fillna(0)
+            )
+            # buy/sell 모두 None인 경우 net도 None
+            both_null = supply_df["program_buy_volume"].isna() & supply_df["program_sell_volume"].isna()
+            supply_df.loc[both_null, "program_net_volume"] = None
+
+            df = df.merge(supply_df, on="date", how="left")
+
+        # 컬럼 보장
+        for col in _SUPPLY_COLS:
             if col not in df.columns:
                 df[col] = None
 

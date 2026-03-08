@@ -43,6 +43,8 @@ fredapi>=0.5.0
 transformers>=4.36.0,<4.46
 torch>=2.1.0
 
+# Supply/Demand (Phase 5) — KIS API 사용 (pykrx KRX 차단으로 제거)
+
 # Market Calendar
 exchange-calendars>=4.5.0
 

@@ -93,6 +93,20 @@ class FeatureStore(ModelBase):
     market_sentiment = Column(Numeric(6, 4))      # 시장 전체 일평균 센티먼트
     market_news_volume = Column(Integer)           # 시장 전체 일간 뉴스 건수
 
+    # 공시 피처 (Phase 5A)
+    disclosure_count_30d = Column(Integer)                  # 최근 30일 공시 건수
+    days_since_disclosure = Column(Integer)                 # 마지막 공시 이후 일수
+    disclosure_sentiment = Column(Numeric(6, 4))            # 공시 제목 센티먼트
+    disclosure_type_score = Column(Numeric(4, 2))           # 공시 유형 가중치 평균
+    disclosure_volume_change = Column(Numeric(10, 4))       # 공시 빈도 변화율
+
+    # 수급 피처 (Phase 5B)
+    short_selling_volume = Column(BigInteger)               # 공매도 거래량
+    short_selling_ratio = Column(Numeric(8, 4))             # 공매도 비율 (%)
+    program_buy_volume = Column(BigInteger)                 # 프로그램 매수
+    program_sell_volume = Column(BigInteger)                # 프로그램 매도
+    program_net_volume = Column(BigInteger)                 # 프로그램 순매수
+
     # 타겟 변수
     target_class_1d = Column(Integer)
     target_class_5d = Column(Integer)

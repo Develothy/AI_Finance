@@ -117,6 +117,10 @@ class DataScheduler:
                         self.add_macro_job(job_model)
                     elif job_model.job_type == "news_collect":
                         self.add_news_job(job_model)
+                    elif job_model.job_type == "disclosure_collect":
+                        self.add_disclosure_job(job_model)
+                    elif job_model.job_type == "supply_collect":
+                        self.add_supply_job(job_model)
                     else:
                         self.add_job_from_model(job_model)
                     loaded += 1
@@ -570,6 +574,140 @@ class DataScheduler:
         logger.info(f"뉴스 수집 스케줄 등록", "add_news_job",
                     {"job_id": job_name, "market": market})
 
+    def add_disclosure_job(self, job_model):
+        """DART 공시 수집 크론 잡 등록 (Phase 5A)"""
+        job_name = job_model.job_name
+        cron_expr = job_model.cron_expr
+        market = job_model.market or "KOSPI"
+        days_back = job_model.days_back or 60
+
+        def disclosure_job_func():
+            from models import ScheduleJob as SJ, ScheduleLog
+            from services import DisclosureService
+
+            logger.info(f"공시 수집 스케줄 시작", "disclosure_cron_job",
+                        {"job_id": job_name, "market": market})
+
+            log_id = None
+            with database.session() as session:
+                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
+                if job_row:
+                    log = ScheduleLog(
+                        job_id=job_row.id,
+                        started_at=datetime.now(),
+                        status="running",
+                        trigger_by="scheduler",
+                    )
+                    session.add(log)
+                    session.flush()
+                    log_id = log.id
+
+            try:
+                svc = DisclosureService()
+                result = svc.collect_disclosures(market=market, days=days_back)
+
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "success"
+                            log_entry.success_count = result.get("success", 0)
+                            log_entry.failed_count = result.get("failed", 0)
+                            log_entry.db_saved_count = result.get("saved", 0)
+                            log_entry.message = result.get("message", "")[:500]
+
+            except Exception as e:
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "failed"
+                            log_entry.message = str(e)[:500]
+                logger.error(f"공시 수집 스케줄 실패", "disclosure_cron_job",
+                             {"error": str(e)})
+
+        trigger = parse_cron_expr(cron_expr)
+        job = self.scheduler.add_job(
+            disclosure_job_func, trigger=trigger, id=job_name,
+            replace_existing=True, max_instances=1,
+        )
+        self._jobs[job_name] = job
+        logger.info(f"공시 수집 스케줄 등록", "add_disclosure_job",
+                    {"job_id": job_name, "market": market})
+
+    def add_supply_job(self, job_model):
+        """KRX 수급 수집 크론 잡 등록 (Phase 5B)"""
+        job_name = job_model.job_name
+        cron_expr = job_model.cron_expr
+        market = job_model.market or "KOSPI"
+        days_back = job_model.days_back or 60
+
+        def supply_job_func():
+            from models import ScheduleJob as SJ, ScheduleLog
+            from services import DisclosureService
+
+            logger.info(f"수급 수집 스케줄 시작", "supply_cron_job",
+                        {"job_id": job_name, "market": market})
+
+            log_id = None
+            with database.session() as session:
+                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
+                if job_row:
+                    log = ScheduleLog(
+                        job_id=job_row.id,
+                        started_at=datetime.now(),
+                        status="running",
+                        trigger_by="scheduler",
+                    )
+                    session.add(log)
+                    session.flush()
+                    log_id = log.id
+
+            try:
+                svc = DisclosureService()
+                result = svc.collect_supply_demand(market=market, days=days_back)
+
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "success"
+                            log_entry.success_count = result.get("success", 0)
+                            log_entry.failed_count = result.get("failed", 0)
+                            log_entry.db_saved_count = result.get("saved", 0)
+                            log_entry.message = result.get("message", "")[:500]
+
+            except Exception as e:
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "failed"
+                            log_entry.message = str(e)[:500]
+                logger.error(f"수급 수집 스케줄 실패", "supply_cron_job",
+                             {"error": str(e)})
+
+        trigger = parse_cron_expr(cron_expr)
+        job = self.scheduler.add_job(
+            supply_job_func, trigger=trigger, id=job_name,
+            replace_existing=True, max_instances=1,
+        )
+        self._jobs[job_name] = job
+        logger.info(f"수급 수집 스케줄 등록", "add_supply_job",
+                    {"job_id": job_name, "market": market})
+
     def add_job_from_model(self, job_model):
         # DB ScheduleJob 모델에서 작업 등록
         self.add_cron_job(
@@ -638,6 +776,10 @@ class DataScheduler:
                     self.add_macro_job(job_model)
                 elif job_type == "news_collect":
                     self.add_news_job(job_model)
+                elif job_type == "disclosure_collect":
+                    self.add_disclosure_job(job_model)
+                elif job_type == "supply_collect":
+                    self.add_supply_job(job_model)
                 else:
                     self.add_job_from_model(job_model)
             elif action == "update":
@@ -652,6 +794,10 @@ class DataScheduler:
                         self.add_macro_job(job_model)
                     elif job_type == "news_collect":
                         self.add_news_job(job_model)
+                    elif job_type == "disclosure_collect":
+                        self.add_disclosure_job(job_model)
+                    elif job_type == "supply_collect":
+                        self.add_supply_job(job_model)
                     else:
                         self.add_job_from_model(job_model)
         except Exception as e:

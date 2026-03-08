@@ -34,7 +34,7 @@ from data_collector import DataScheduler, SCHEDULER_AVAILABLE
 from models import (
     StockPrice, StockInfo, ScheduleJob, ScheduleLog, MLTrainConfig,
     StockFundamental, FinancialStatement, FeatureStore, MLModel, MLPrediction,
-    NewsSentiment,
+    NewsSentiment, DartDisclosure, KrxSupplyDemand,
 )
 
 logger = get_logger("admin")
@@ -201,6 +201,14 @@ def db_status():
                     ),
                     "ml_prediction": TableStats(
                         row_count=ml_pred_count,
+                    ),
+                    "dart_disclosure": TableStats(
+                        row_count=session.query(func.count(DartDisclosure.id)).scalar() or 0,
+                        code_count=session.query(func.count(func.distinct(DartDisclosure.code))).scalar() or 0,
+                    ),
+                    "krx_supply_demand": TableStats(
+                        row_count=session.query(func.count(KrxSupplyDemand.id)).scalar() or 0,
+                        code_count=session.query(func.count(func.distinct(KrxSupplyDemand.code))).scalar() or 0,
                     ),
                 },
             )

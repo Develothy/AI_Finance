@@ -71,6 +71,17 @@ def render():
 
     st.markdown("---")
 
+    # news_sentiment
+    ns = tables.get("news_sentiment", {})
+    st.subheader("news_sentiment (뉴스 센티먼트)")
+    nc1, nc2, nc3, nc4 = st.columns(4)
+    nc1.metric("레코드 수", f"{ns.get('row_count', 0):,}")
+    nc2.metric("종목 수", f"{ns.get('code_count', 0):,}")
+    nc3.metric("최초 날짜", ns.get("earliest_date", "-") or "-")
+    nc4.metric("최근 날짜", ns.get("latest_date", "-") or "-")
+
+    st.markdown("---")
+
     # feature_store
     ft = tables.get("feature_store", {})
     st.subheader("feature_store (ML 피처)")

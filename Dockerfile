@@ -12,6 +12,13 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# KR-FinBert-SC 센티먼트 모델 미리 다운로드
+RUN python -c "\
+from transformers import AutoTokenizer, AutoModelForSequenceClassification; \
+AutoTokenizer.from_pretrained('snunlp/KR-FinBert-SC'); \
+AutoModelForSequenceClassification.from_pretrained('snunlp/KR-FinBert-SC'); \
+print('Model downloaded successfully')"
+
 # 소스 복사
 COPY app/ ./
 

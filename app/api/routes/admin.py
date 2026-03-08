@@ -34,6 +34,7 @@ from data_collector import DataScheduler, SCHEDULER_AVAILABLE
 from models import (
     StockPrice, StockInfo, ScheduleJob, ScheduleLog, MLTrainConfig,
     StockFundamental, FinancialStatement, FeatureStore, MLModel, MLPrediction,
+    NewsSentiment,
 )
 
 logger = get_logger("admin")
@@ -134,6 +135,19 @@ def db_status():
                 feat_markets = [r[0] for r in session.query(FeatureStore.market).distinct().all()]
                 feat_code_count = session.query(func.count(func.distinct(FeatureStore.code))).scalar() or 0
 
+            # news_sentiment 통계
+            ns_count = session.query(func.count(NewsSentiment.id)).scalar() or 0
+            ns_earliest = ns_latest = None
+            ns_code_count = 0
+            if ns_count > 0:
+                ns_earliest_dt = session.query(func.min(NewsSentiment.date)).scalar()
+                ns_latest_dt = session.query(func.max(NewsSentiment.date)).scalar()
+                ns_earliest = ns_earliest_dt.strftime("%Y-%m-%d") if ns_earliest_dt else None
+                ns_latest = ns_latest_dt.strftime("%Y-%m-%d") if ns_latest_dt else None
+                ns_code_count = session.query(
+                    func.count(func.distinct(NewsSentiment.code))
+                ).filter(NewsSentiment.code.isnot(None)).scalar() or 0
+
             # ml_model / ml_prediction 통계
             ml_model_count = session.query(func.count(MLModel.id)).scalar() or 0
             ml_active_count = session.query(func.count(MLModel.id)).filter(MLModel.is_active.is_(True)).scalar() or 0
@@ -174,6 +188,12 @@ def db_status():
                         latest_date=feat_latest,
                         markets=feat_markets,
                         code_count=feat_code_count,
+                    ),
+                    "news_sentiment": TableStats(
+                        row_count=ns_count,
+                        earliest_date=ns_earliest,
+                        latest_date=ns_latest,
+                        code_count=ns_code_count,
                     ),
                     "ml_model": TableStats(
                         row_count=ml_model_count,

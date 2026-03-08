@@ -17,10 +17,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.pages import market_overview, sector_view, stock_analysis
+from dashboard.pages import market_overview, news_sentiment, sector_view, stock_analysis
 
 PAGES = {
     "종목 분석": stock_analysis,
+    "뉴스 센티먼트": news_sentiment,
     "시장 개요": market_overview,
     "섹터 분석": sector_view,
 }

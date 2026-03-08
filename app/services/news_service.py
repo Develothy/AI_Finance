@@ -159,12 +159,16 @@ class NewsService:
     def _get_stock_codes_with_names(market: str) -> list[tuple[str, str]]:
         from models import StockInfo
 
+        # "KR" → KOSPI + KOSDAQ 전체 조회
+        kr_markets = ["KOSPI", "KOSDAQ"]
+
         with database.session() as session:
-            rows = (
-                session.query(StockInfo.code, StockInfo.name)
-                .filter(StockInfo.market == market)
-                .all()
-            )
+            query = session.query(StockInfo.code, StockInfo.name)
+            if market == "KR":
+                query = query.filter(StockInfo.market.in_(kr_markets))
+            else:
+                query = query.filter(StockInfo.market == market)
+            rows = query.all()
         return [(r.code, r.name) for r in rows]
 
     @staticmethod

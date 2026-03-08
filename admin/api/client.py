@@ -127,6 +127,51 @@ class AdminAPIClient:
         return _self._get("/ml/predictions", params)
 
 
+    # ── 뉴스 ─────────────────────────────────────────
+
+    def collect_news(
+        _self,
+        market: str = "KR",
+        codes: list[list[str]] = None,
+        include_market_news: bool = True,
+        max_items_per_code: int = 50,
+    ) -> dict:
+        json_data = {
+            "market": market,
+            "include_market_news": include_market_news,
+            "max_items_per_code": max_items_per_code,
+        }
+        if codes:
+            json_data["codes"] = codes
+        url = f"{_self.base_url}/news/collect"
+        resp = requests.post(url, json=json_data, timeout=600)
+        resp.raise_for_status()
+        return resp.json()
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def get_news_articles(
+        _self,
+        code: str = None,
+        start_date: str = None,
+        end_date: str = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        params = {"limit": limit}
+        if code:
+            params["code"] = code
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return _self._get("/news/articles", params)
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def get_news_sentiment_summary(_self, code: str) -> dict | None:
+        try:
+            return _self._get(f"/news/sentiment/{code}")
+        except Exception:
+            return None
+
     # ── 재무 데이터 ────────────────────────────────────
 
     def collect_fundamentals(_self, market: str, codes: list[str] = None, date: str = None) -> dict:

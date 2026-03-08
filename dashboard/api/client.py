@@ -156,5 +156,31 @@ class APIClient:
             params["end_date"] = end_date
         return _self._get(f"/indicators/obv/{code}", params)
 
+    # ── News ──────────────────────────────────────────
+
+    @st.cache_data(ttl=60, show_spinner=False)
+    def get_news_articles(
+        _self,
+        code: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        params = {"limit": limit}
+        if code:
+            params["code"] = code
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        return _self._get("/news/articles", params)
+
+    @st.cache_data(ttl=60, show_spinner=False)
+    def get_sentiment_summary(_self, code: str) -> dict | None:
+        try:
+            return _self._get(f"/news/sentiment/{code}")
+        except Exception:
+            return None
+
 
 api_client = APIClient()

@@ -119,6 +119,8 @@ class DataScheduler:
                         self.add_news_job(job_model)
                     elif job_model.job_type == "disclosure_collect":
                         self.add_disclosure_job(job_model)
+                    elif job_model.job_type == "market_investor_collect":
+                        self.add_market_investor_job(job_model)
                     elif job_model.job_type == "supply_collect":
                         self.add_supply_job(job_model)
                     else:
@@ -433,6 +435,73 @@ class DataScheduler:
         self._jobs[job_name] = job
         logger.info(f"재무 데이터 수집 스케줄 등록", "add_fundamental_job",
                     {"job_id": job_name, "market": market})
+
+    def add_market_investor_job(self, job_model):
+        """시장 투자자매매동향 수집 크론 잡 등록 (Phase 5.5)
+
+        Args:
+            job_model: ScheduleJob 모델 (job_type="market_investor_collect")
+        """
+        job_name = job_model.job_name
+        cron_expr = job_model.cron_expr
+
+        def market_investor_job_func():
+            from models import ScheduleJob as SJ, ScheduleLog
+            from services import FundamentalService
+
+            logger.info(f"시장 투자자매매동향 수집 스케줄 시작", "market_investor_cron_job",
+                        {"job_id": job_name})
+
+            log_id = None
+            with database.session() as session:
+                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
+                if job_row:
+                    log = ScheduleLog(
+                        job_id=job_row.id,
+                        started_at=datetime.now(),
+                        status="running",
+                        trigger_by="scheduler",
+                    )
+                    session.add(log)
+                    session.flush()
+                    log_id = log.id
+
+            try:
+                svc = FundamentalService()
+                result = svc.collect_market_investor_trading()
+
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "success"
+                            log_entry.db_saved_count = result.get("saved", 0)
+                            log_entry.message = f"시장 투자자매매동향 {result.get('saved', 0)}건 저장"
+
+            except Exception as e:
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "failed"
+                            log_entry.message = str(e)[:500]
+                logger.error(f"시장 투자자매매동향 수집 스케줄 실패", "market_investor_cron_job",
+                             {"error": str(e)})
+
+        trigger = parse_cron_expr(cron_expr)
+        job = self.scheduler.add_job(
+            market_investor_job_func, trigger=trigger, id=job_name,
+            replace_existing=True, max_instances=1,
+        )
+        self._jobs[job_name] = job
+        logger.info(f"시장 투자자매매동향 수집 스케줄 등록", "add_market_investor_job",
+                    {"job_id": job_name})
 
     def add_macro_job(self, job_model):
         """거시경제 지표 수집 크론 잡 등록 (Phase 3)
@@ -772,6 +841,8 @@ class DataScheduler:
                     self.add_ml_train_job(job_model, ml_config)
                 elif job_type == "fundamental_collect":
                     self.add_fundamental_job(job_model)
+                elif job_type == "market_investor_collect":
+                    self.add_market_investor_job(job_model)
                 elif job_type == "macro_collect":
                     self.add_macro_job(job_model)
                 elif job_type == "news_collect":
@@ -790,6 +861,8 @@ class DataScheduler:
                         self.add_ml_train_job(job_model, ml_config)
                     elif job_type == "fundamental_collect":
                         self.add_fundamental_job(job_model)
+                    elif job_type == "market_investor_collect":
+                        self.add_market_investor_job(job_model)
                     elif job_type == "macro_collect":
                         self.add_macro_job(job_model)
                     elif job_type == "news_collect":

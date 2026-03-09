@@ -231,7 +231,7 @@ class ScheduleJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_job_type(self):
-        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect", "disclosure_collect", "supply_collect")
+        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect", "disclosure_collect", "supply_collect", "market_investor_collect")
         if self.job_type not in valid_types:
             raise ValueError(f"job_type은 {valid_types} 중 하나여야 합니다.")
         return self
@@ -472,6 +472,16 @@ class StockFundamentalResponse(BaseModel):
     inst_net_buy: Optional[int] = None
     foreign_net_buy: Optional[int] = None
     individual_net_buy: Optional[int] = None
+    # Phase 5.5: 거래대금 + 매수/매도 거래량
+    inst_net_buy_amount: Optional[int] = None
+    foreign_net_buy_amount: Optional[int] = None
+    individual_net_buy_amount: Optional[int] = None
+    inst_buy_vol: Optional[int] = None
+    foreign_buy_vol: Optional[int] = None
+    individual_buy_vol: Optional[int] = None
+    inst_sell_vol: Optional[int] = None
+    foreign_sell_vol: Optional[int] = None
+    individual_sell_vol: Optional[int] = None
 
 
 class FinancialStatementResponse(BaseModel):
@@ -495,6 +505,31 @@ class FundamentalSummaryResponse(BaseModel):
     code: str
     fundamental: Optional[StockFundamentalResponse] = None
     financial_statement: Optional[FinancialStatementResponse] = None
+
+
+# ============================================================
+# 시장 투자자매매동향 스키마 (Phase 5.5)
+# ============================================================
+
+class MarketInvestorCollectRequest(BaseModel):
+    markets: Optional[list[str]] = None  # ["KOSPI", "KOSDAQ"] 기본: 둘 다
+    date: Optional[str] = None  # YYYYMMDD, 기본: 직전 거래일
+
+
+class MarketInvestorCollectResponse(BaseModel):
+    markets: list[dict] = []
+    saved: int = 0
+
+
+class MarketInvestorTradingResponse(BaseModel):
+    market: str
+    date: Optional[str] = None
+    foreign_net_buy_qty: Optional[int] = None
+    inst_net_buy_qty: Optional[int] = None
+    individual_net_buy_qty: Optional[int] = None
+    foreign_net_buy_amount: Optional[int] = None
+    inst_net_buy_amount: Optional[int] = None
+    individual_net_buy_amount: Optional[int] = None
 
 
 # ============================================================

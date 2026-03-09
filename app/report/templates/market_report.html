@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ALCHEMETRIC 시장 일간 리포트</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Malgun Gothic','맑은 고딕',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+
+<!-- 전체 래퍼 -->
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f5f5f5;">
+<tr><td align="center" style="padding:24px 16px;">
+
+<!-- 본문 컨테이너 (640px) -->
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="max-width:640px;width:100%;background-color:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+
+
+<!-- ════════════════════════════════════════════
+     ① 헤더
+     ════════════════════════════════════════════ -->
+<tr>
+<td style="background-color:#1a2332;padding:32px 40px 28px;text-align:center;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+    <tr>
+      <td style="text-align:center;">
+        <!-- 로고 텍스트 -->
+        <div style="font-size:13px;letter-spacing:6px;color:#D4A83A;font-weight:700;margin-bottom:6px;">ALCHEMETRIC</div>
+        <div style="font-size:24px;font-weight:700;color:#ffffff;letter-spacing:1px;margin-bottom:8px;">시장 일간 리포트</div>
+        <div style="font-size:13px;color:#89B4F9;">2026년 3월 7일 (금) &middot; 장 마감 기준</div>
+      </td>
+    </tr>
+  </table>
+</td>
+</tr>
+
+
+<!-- ════════════════════════════════════════════
+     ② 시장 개황 요약 (LLM)
+     ════════════════════════════════════════════ -->
+<tr>
+<td style="padding:28px 40px 24px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+    <tr>
+      <td style="border-left:3px solid #D4A83A;padding-left:16px;">
+        <div style="font-size:12px;font-weight:700;color:#D4A83A;letter-spacing:2px;margin-bottom:8px;">AI MARKET SUMMARY</div>
+        <div style="font-size:14px;color:#333333;line-height:1.75;">
+          코스피가 외국인 순매수세(+2,847억)에 힘입어 전일 대비 +0.85% 상승한 2,583.42에 마감했습니다.
+          원/달러 환율이 1,328원으로 소폭 하락하며 외국인 자금 유입에 우호적인 환경이 조성되었고,
+          반도체·2차전지 섹터가 강세를 주도했습니다.
+          다만 미국 고용지표 발표를 앞두고 관망 심리가 일부 감지되며 거래량은 평균 대비 12% 감소했습니다.
+        </div>
+      </td>
+    </tr>
+  </table>
+</td>
+</tr>
+
+<!-- 구분선 -->
+<tr><td style="padding:0 40px;"><div style="border-top:1px solid #eeeeee;"></div></td></tr>
+
+
+<!-- ════════════════════════════════════════════
+     ③④ 주요 지수 + 거시경제 (2열 압축)
+     ════════════════════════════════════════════ -->
+<tr>
+<td style="padding:24px 40px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+  <tr>
+
+    <!-- ── 좌측: 주요 지수 ── -->
+    <td width="48%" valign="top">
+      <div style="font-size:14px;font-weight:700;color:#333333;margin-bottom:12px;">주요 지수</div>
+
+      <!-- 통합 추세 차트 -->
+      <div style="padding:14px 12px 8px;border:1px solid #eee;border-radius:6px;margin-bottom:6px;">
+        <svg width="100%" viewBox="0 0 260 120" style="display:block;">
+          <!-- 그리드 -->
+          <line x1="5" y1="10" x2="255" y2="10" stroke="#f0f0f0" stroke-width="0.5"/>
+          <line x1="5" y1="37" x2="255" y2="37" stroke="#f0f0f0" stroke-width="0.5"/>
+          <line x1="5" y1="64" x2="255" y2="64" stroke="#f0f0f0" stroke-width="0.5"/>
+          <line x1="5" y1="91" x2="255" y2="91" stroke="#f0f0f0" stroke-width="0.5"/>
+          <!-- KOSPI -->
+          <polyline points="5,75 33,72 61,65 89,70 117,55 145,52 173,58 201,42 229,30 255,25" fill="none" stroke="#E74C3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- KOSDAQ -->
+          <polyline points="5,35 33,38 61,30 89,42 117,48 145,40 173,52 201,58 229,64 255,70" fill="none" stroke="#3498DB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- S&P 500 -->
+          <polyline points="5,68 33,65 61,60 89,55 117,62 145,50 173,45 201,40 229,32 255,28" fill="none" stroke="#27AE60" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- NASDAQ -->
+          <polyline points="5,65 33,55 61,58 89,50 117,45 145,55 173,40 201,35 229,28 255,22" fill="none" stroke="#F39C12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- 축 라벨 -->
+          <text x="5" y="108" font-size="8" fill="#bbb" font-family="-apple-system,sans-serif">10일전</text>
+          <text x="225" y="108" font-size="8" fill="#bbb" font-family="-apple-system,sans-serif">오늘</text>
+        </svg>
+        <div style="font-size:9px;color:#ccc;text-align:right;margin-top:2px;">정규화 추이 &middot; 운영 시 matplotlib 대체</div>
+      </div>
+
+      <!-- 범례 + 현재값 -->
+      <div style="padding:10px 12px;border:1px solid #eee;border-radius:6px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:3px 0;font-size:11px;color:#555;"><span style="color:#E74C3C;">&#9679;</span> KOSPI</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;font-weight:600;color:#333;">2,583.42</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;color:#E74C3C;font-weight:600;width:60px;">&#9650; +0.85%</td>
+          </tr>
+          <tr>
+            <td style="padding:3px 0;font-size:11px;color:#555;"><span style="color:#3498DB;">&#9679;</span> KOSDAQ</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;font-weight:600;color:#333;">723.15</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;color:#3498DB;font-weight:600;width:60px;">&#9660; -0.45%</td>
+          </tr>
+          <tr>
+            <td style="padding:3px 0;font-size:11px;color:#555;"><span style="color:#27AE60;">&#9679;</span> S&amp;P 500</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;font-weight:600;color:#333;">5,842.31</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;color:#E74C3C;font-weight:600;width:60px;">&#9650; +0.67%</td>
+          </tr>
+          <tr>
+            <td style="padding:3px 0;font-size:11px;color:#555;"><span style="color:#F39C12;">&#9679;</span> NASDAQ</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;font-weight:600;color:#333;">18,421.05</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;color:#E74C3C;font-weight:600;width:60px;">&#9650; +0.68%</td>
+          </tr>
+        </table>
+      </div>
+    </td>
+
+    <!-- 간격 -->
+    <td width="4%"></td>
+
+    <!-- ── 우측: 거시경제 ── -->
+    <td width="48%" valign="top">
+      <div style="font-size:14px;font-weight:700;color:#333333;margin-bottom:12px;">거시경제</div>
+
+      <!-- 통합 추세 차트 -->
+      <div style="padding:14px 12px 8px;border:1px solid #eee;border-radius:6px;margin-bottom:6px;">
+        <svg width="100%" viewBox="0 0 260 120" style="display:block;">
+          <!-- 그리드 -->
+          <line x1="5" y1="10" x2="255" y2="10" stroke="#f0f0f0" stroke-width="0.5"/>
+          <line x1="5" y1="37" x2="255" y2="37" stroke="#f0f0f0" stroke-width="0.5"/>
+          <line x1="5" y1="64" x2="255" y2="64" stroke="#f0f0f0" stroke-width="0.5"/>
+          <line x1="5" y1="91" x2="255" y2="91" stroke="#f0f0f0" stroke-width="0.5"/>
+          <!-- VIX -->
+          <polyline points="5,16 33,38 61,26 89,48 117,62 145,45 173,55 201,68 229,76 255,76" fill="none" stroke="#9B59B6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- US 10Y -->
+          <polyline points="5,65 33,60 61,54 89,60 117,48 145,42 173,36 201,42 229,24 255,18" fill="none" stroke="#E74C3C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- KR 3Y -->
+          <polyline points="5,62 33,58 61,62 89,58 117,58 145,62 173,68 201,62 229,68 255,72" fill="none" stroke="#F39C12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- WTI -->
+          <polyline points="5,65 33,60 61,68 89,50 117,42 145,60 173,36 201,26 229,22 255,16" fill="none" stroke="#555555" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5,2"/>
+          <!-- 축 라벨 -->
+          <text x="5" y="108" font-size="8" fill="#bbb" font-family="-apple-system,sans-serif">10일전</text>
+          <text x="225" y="108" font-size="8" fill="#bbb" font-family="-apple-system,sans-serif">오늘</text>
+        </svg>
+        <div style="font-size:9px;color:#ccc;text-align:right;margin-top:2px;">정규화 추이 &middot; 운영 시 matplotlib 대체</div>
+      </div>
+
+      <!-- 범례 + 현재값 -->
+      <div style="padding:10px 12px;border:1px solid #eee;border-radius:6px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding:3px 0;font-size:11px;color:#555;"><span style="color:#9B59B6;">&#9679;</span> VIX</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;font-weight:600;color:#333;">15.82</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;color:#3498DB;font-weight:600;width:55px;">&#9660; 2.15%</td>
+          </tr>
+          <tr>
+            <td style="padding:3px 0;font-size:11px;color:#555;"><span style="color:#E74C3C;">&#9679;</span> US 10Y</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;font-weight:600;color:#333;">4.28%</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;color:#E74C3C;font-weight:600;width:55px;">&#9650; 0.47%</td>
+          </tr>
+          <tr>
+            <td style="padding:3px 0;font-size:11px;color:#555;"><span style="color:#F39C12;">&#9679;</span> KR 3Y</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;font-weight:600;color:#333;">2.85%</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;color:#3498DB;font-weight:600;width:55px;">&#9660; 0.12%</td>
+          </tr>
+          <tr>
+            <td style="padding:3px 0;font-size:11px;color:#555;"><span style="color:#555;">&#9679;</span> WTI</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;font-weight:600;color:#333;">$72.45</td>
+            <td style="padding:3px 0;font-size:11px;text-align:right;color:#E74C3C;font-weight:600;width:55px;">&#9650; 1.23%</td>
+          </tr>
+        </table>
+      </div>
+    </td>
+
+  </tr>
+  </table>
+
+  <!-- 핵심 지표 바 -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:12px;background-color:#f8f9fa;border-radius:6px;overflow:hidden;">
+    <tr>
+      <td width="33%" style="padding:14px 16px;text-align:center;border-right:1px solid #eee;">
+        <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:1px;margin-bottom:4px;">원/달러</div>
+        <div style="font-size:18px;font-weight:700;color:#333;">1,328.40</div>
+        <div style="font-size:11px;color:#3498DB;font-weight:600;margin-top:2px;">&#9660; -0.32%</div>
+      </td>
+      <td width="34%" style="padding:14px 16px;text-align:center;border-right:1px solid #eee;">
+        <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:1px;margin-bottom:4px;">기준금리</div>
+        <div style="font-size:18px;font-weight:700;color:#333;">4.33%</div>
+        <div style="font-size:11px;color:#999;margin-top:2px;">동결</div>
+      </td>
+      <td width="33%" style="padding:14px 16px;text-align:center;">
+        <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:1px;margin-bottom:4px;">GOLD</div>
+        <div style="font-size:18px;font-weight:700;color:#D4A83A;">$2,918</div>
+        <div style="font-size:11px;color:#E74C3C;font-weight:600;margin-top:2px;">&#9650; +0.34%</div>
+      </td>
+    </tr>
+  </table>
+</td>
+</tr>
+
+<!-- 구분선 -->
+<tr><td style="padding:0 40px;"><div style="border-top:1px solid #eeeeee;"></div></td></tr>
+
+
+<!-- ════════════════════════════════════════════
+     ⑤ 뉴스 센티먼트 요약
+     ════════════════════════════════════════════ -->
+<tr>
+<td style="padding:24px 40px;">
+  <div style="font-size:15px;font-weight:700;color:#333333;margin-bottom:16px;">뉴스 센티먼트</div>
+
+  <!-- 센티먼트 요약 (압축) -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:16px;">
+    <tr>
+      <td style="padding:12px 16px;background-color:#f8f9fa;border-radius:6px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td width="72" valign="middle">
+              <div style="font-size:10px;color:#888;font-weight:600;margin-bottom:2px;">센티먼트</div>
+              <div style="font-size:22px;font-weight:700;color:#27AE60;">+0.218</div>
+            </td>
+            <td valign="middle" style="padding:0 14px;">
+              <div style="background-color:#e0e0e0;border-radius:3px;height:6px;">
+                <div style="width:61%;height:6px;background:linear-gradient(90deg,#3498DB,#27AE60);border-radius:3px;"></div>
+              </div>
+            </td>
+            <td width="160" valign="middle" style="text-align:right;font-size:11px;">
+              <span style="color:#27AE60;font-weight:700;">긍정 87</span>
+              <span style="color:#ccc;"> | </span>
+              <span style="color:#F39C12;font-weight:700;">중립 142</span>
+              <span style="color:#ccc;"> | </span>
+              <span style="color:#E74C3C;font-weight:700;">부정 53</span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <!-- 주요 뉴스 -->
+  <div style="font-size:13px;font-weight:600;color:#27AE60;margin-bottom:8px;">주요 긍정 뉴스</div>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:16px;">
+    <tr>
+      <td style="padding:6px 0;font-size:13px;color:#333333;border-bottom:1px solid #f5f5f5;">
+        <span style="color:#27AE60;margin-right:4px;">+0.82</span> 삼성전자, HBM4 양산 일정 앞당겨... "하반기 본격 출하"
+        <span style="color:#999999;font-size:11px;"> &middot; 한경</span>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:6px 0;font-size:13px;color:#333333;border-bottom:1px solid #f5f5f5;">
+        <span style="color:#27AE60;margin-right:4px;">+0.76</span> 외국인 3일 연속 순매수... "반도체 비중 확대 지속"
+        <span style="color:#999999;font-size:11px;"> &middot; 매경</span>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:6px 0;font-size:13px;color:#333333;">
+        <span style="color:#27AE60;margin-right:4px;">+0.71</span> 2차전지 ETF 자금 유입 급증... "정책 모멘텀 기대"
+        <span style="color:#999999;font-size:11px;"> &middot; 조선비즈</span>
+      </td>
+    </tr>
+  </table>
+
+  <div style="font-size:13px;font-weight:600;color:#E74C3C;margin-bottom:8px;">주요 부정 뉴스</div>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:16px;">
+    <tr>
+      <td style="padding:6px 0;font-size:13px;color:#333333;border-bottom:1px solid #f5f5f5;">
+        <span style="color:#E74C3C;margin-right:4px;">-0.68</span> 미국 고용지표 발표 앞두고 관망세 확산
+        <span style="color:#999999;font-size:11px;"> &middot; 연합뉴스</span>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:6px 0;font-size:13px;color:#333333;border-bottom:1px solid #f5f5f5;">
+        <span style="color:#E74C3C;margin-right:4px;">-0.61</span> 중국 경기 둔화 우려에 철강·화학주 약세
+        <span style="color:#999999;font-size:11px;"> &middot; 이데일리</span>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:6px 0;font-size:13px;color:#333333;">
+        <span style="color:#E74C3C;margin-right:4px;">-0.54</span> 바이오 대형주 임상 실패 소식에 섹터 전반 하락
+        <span style="color:#999999;font-size:11px;"> &middot; 머니투데이</span>
+      </td>
+    </tr>
+  </table>
+
+  <!-- LLM 센티먼트 코멘트 -->
+  <div style="padding:14px 16px;background-color:#f8f9fa;border-radius:6px;border-left:3px solid #89B4F9;">
+    <div style="font-size:11px;font-weight:600;color:#89B4F9;letter-spacing:1px;margin-bottom:6px;">AI SENTIMENT INSIGHT</div>
+    <div style="font-size:13px;color:#555555;line-height:1.7;">
+      전체적으로 긍정 뉴스가 우세하나, 반도체 편중이 두드러집니다. 바이오·중국 관련 부정 뉴스가 특정 섹터에 집중되어 있어 섹터 로테이션 흐름이 감지됩니다.
+    </div>
+  </div>
+</td>
+</tr>
+
+<!-- 구분선 -->
+<tr><td style="padding:0 40px;"><div style="border-top:1px solid #eeeeee;"></div></td></tr>
+
+
+<!-- ════════════════════════════════════════════
+     ⑤-2 수급 동향
+     ════════════════════════════════════════════ -->
+<tr>
+<td style="padding:24px 40px;">
+  <div style="font-size:15px;font-weight:700;color:#333333;margin-bottom:14px;">수급 동향</div>
+
+  <!-- 시장 전체 투자자 비중 -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:14px;">
+    <tr>
+      <td style="padding:14px 16px;background-color:#f8f9fa;border-radius:6px;">
+        <!-- 거래대금 비중 바 -->
+        <div style="font-size:10px;font-weight:700;color:#888;letter-spacing:1px;margin-bottom:8px;">당일 거래대금 비중</div>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:4px;">
+          <tr>
+            <td style="width:62%;height:22px;background-color:#3498DB;border-radius:4px 0 0 4px;text-align:center;font-size:10px;color:#fff;font-weight:700;line-height:22px;">개인 62.3%</td>
+            <td style="width:24%;height:22px;background-color:#C0392B;text-align:center;font-size:10px;color:#fff;font-weight:700;line-height:22px;">외국인 24.1%</td>
+            <td style="width:14%;height:22px;background-color:#E74C3C;border-radius:0 4px 4px 0;text-align:center;font-size:10px;color:#fff;font-weight:700;line-height:22px;">기관 13.6%</td>
+          </tr>
+        </table>
+        <!-- 순매수 금액 -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:10px;">
+          <tr>
+            <td width="33%" style="text-align:center;">
+              <div style="font-size:10px;color:#888;margin-bottom:2px;">외국인</div>
+              <div style="font-size:14px;font-weight:700;color:#E74C3C;">+4,283억</div>
+            </td>
+            <td width="34%" style="text-align:center;border-left:1px solid #e0e0e0;border-right:1px solid #e0e0e0;">
+              <div style="font-size:10px;color:#888;margin-bottom:2px;">기관</div>
+              <div style="font-size:14px;font-weight:700;color:#E74C3C;">+1,847억</div>
+            </td>
+            <td width="33%" style="text-align:center;">
+              <div style="font-size:10px;color:#888;margin-bottom:2px;">개인</div>
+              <div style="font-size:14px;font-weight:700;color:#3498DB;">-6,130억</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <!-- ── 외국인 순매수 / 순매도 ── -->
+  <div style="font-size:12px;font-weight:700;color:#555;margin-bottom:8px;">외국인</div>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:14px;">
+  <tr>
+    <td width="48%" valign="top">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <tr style="background-color:#fef5f5;">
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#E74C3C;border-bottom:1px solid #f0d0d0;">&#9650; 순매수 Top</td>
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#E74C3C;border-bottom:1px solid #f0d0d0;text-align:right;">억원</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">삼성전자</td>
+          <td style="padding:6px 8px;font-size:11px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">+2,847</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">SK하이닉스</td>
+          <td style="padding:6px 8px;font-size:11px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">+1,523</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;">현대차</td>
+          <td style="padding:6px 8px;font-size:11px;color:#E74C3C;text-align:right;font-weight:700;">+891</td>
+        </tr>
+      </table>
+    </td>
+    <td width="4%"></td>
+    <td width="48%" valign="top">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <tr style="background-color:#f5f8fe;">
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#3498DB;border-bottom:1px solid #d0dff0;">&#9660; 순매도 Top</td>
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#3498DB;border-bottom:1px solid #d0dff0;text-align:right;">억원</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">셀트리온</td>
+          <td style="padding:6px 8px;font-size:11px;color:#3498DB;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">-642</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">카카오</td>
+          <td style="padding:6px 8px;font-size:11px;color:#3498DB;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">-518</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;">LG화학</td>
+          <td style="padding:6px 8px;font-size:11px;color:#3498DB;text-align:right;font-weight:700;">-403</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  </table>
+
+  <!-- ── 기관 순매수 / 순매도 ── -->
+  <div style="font-size:12px;font-weight:700;color:#555;margin-bottom:8px;">기관</div>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:14px;">
+  <tr>
+    <td width="48%" valign="top">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <tr style="background-color:#fef5f5;">
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#E74C3C;border-bottom:1px solid #f0d0d0;">&#9650; 순매수 Top</td>
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#E74C3C;border-bottom:1px solid #f0d0d0;text-align:right;">억원</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">LG에너지솔루션</td>
+          <td style="padding:6px 8px;font-size:11px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">+1,204</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">POSCO홀딩스</td>
+          <td style="padding:6px 8px;font-size:11px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">+876</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;">삼성SDI</td>
+          <td style="padding:6px 8px;font-size:11px;color:#E74C3C;text-align:right;font-weight:700;">+654</td>
+        </tr>
+      </table>
+    </td>
+    <td width="4%"></td>
+    <td width="48%" valign="top">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <tr style="background-color:#f5f8fe;">
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#3498DB;border-bottom:1px solid #d0dff0;">&#9660; 순매도 Top</td>
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#3498DB;border-bottom:1px solid #d0dff0;text-align:right;">억원</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">한화솔루션</td>
+          <td style="padding:6px 8px;font-size:11px;color:#3498DB;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">-521</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">CJ대한통운</td>
+          <td style="padding:6px 8px;font-size:11px;color:#3498DB;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">-398</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;">롯데케미칼</td>
+          <td style="padding:6px 8px;font-size:11px;color:#3498DB;text-align:right;font-weight:700;">-312</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  </table>
+
+  <!-- ── 프로그램매매 / 공매도 (종목별) ── -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+  <tr>
+    <td width="48%" valign="top">
+      <div style="font-size:12px;font-weight:700;color:#555;margin-bottom:8px;">프로그램매매 순매수 Top</div>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <tr style="background-color:#f8f9fa;">
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#666;border-bottom:1px solid #dee2e6;">종목</td>
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#666;border-bottom:1px solid #dee2e6;text-align:right;">순매수(억)</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">삼성전자</td>
+          <td style="padding:6px 8px;font-size:11px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">+823</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">SK하이닉스</td>
+          <td style="padding:6px 8px;font-size:11px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">+412</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;">NAVER</td>
+          <td style="padding:6px 8px;font-size:11px;color:#E74C3C;text-align:right;font-weight:700;">+287</td>
+        </tr>
+      </table>
+    </td>
+    <td width="4%"></td>
+    <td width="48%" valign="top">
+      <div style="font-size:12px;font-weight:700;color:#555;margin-bottom:8px;">공매도 비중 Top</div>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #eee;border-radius:6px;overflow:hidden;">
+        <tr style="background-color:#f8f9fa;">
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#666;border-bottom:1px solid #dee2e6;">종목</td>
+          <td style="padding:5px 8px;font-size:10px;font-weight:700;color:#666;border-bottom:1px solid #dee2e6;text-align:right;">비중</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">한화솔루션</td>
+          <td style="padding:6px 8px;font-size:11px;color:#333;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">12.8%</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:6px 8px;font-size:11px;color:#333;border-bottom:1px solid #f5f5f5;">셀트리온</td>
+          <td style="padding:6px 8px;font-size:11px;color:#333;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">9.4%</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 8px;font-size:11px;color:#333;">카카오</td>
+          <td style="padding:6px 8px;font-size:11px;color:#333;text-align:right;font-weight:700;">7.2%</td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  </table>
+  <div style="font-size:10px;color:#bbb;text-align:right;margin-top:8px;">단위: 억원 &middot; KRX 기준 &middot; 공매도 비중 = 공매도량/거래량</div>
+</td>
+</tr>
+
+<!-- 구분선 -->
+<tr><td style="padding:0 40px;"><div style="border-top:1px solid #eeeeee;"></div></td></tr>
+
+
+<!-- ════════════════════════════════════════════
+     ⑥ ML 시그널 요약
+     ════════════════════════════════════════════ -->
+<tr>
+<td style="padding:24px 40px;">
+  <div style="font-size:15px;font-weight:700;color:#333333;margin-bottom:16px;">ML 시그널 요약</div>
+
+  <!-- BUY / SELL / HOLD 비율 바 -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:8px;">
+    <tr>
+      <td style="width:32%;height:28px;background-color:#E74C3C;border-radius:4px 0 0 4px;text-align:center;font-size:11px;color:#ffffff;font-weight:700;line-height:28px;">BUY 287</td>
+      <td style="width:38%;height:28px;background-color:#95A5A6;text-align:center;font-size:11px;color:#ffffff;font-weight:700;line-height:28px;">HOLD 331</td>
+      <td style="width:30%;height:28px;background-color:#3498DB;border-radius:0 4px 4px 0;text-align:center;font-size:11px;color:#ffffff;font-weight:700;line-height:28px;">SELL 214</td>
+    </tr>
+  </table>
+  <div style="font-size:11px;color:#999999;margin-bottom:20px;text-align:center;">KOSPI 832개 종목 기준 &middot; XGBoost (F1: 0.6824)</div>
+
+  <!-- BUY / SELL 상위 종목 (2열) -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+  <tr>
+
+    <!-- ── BUY 상위 5종목 ── -->
+    <td width="48%" valign="top">
+      <div style="font-size:13px;font-weight:700;color:#E74C3C;margin-bottom:8px;">&#9650; BUY 상위 5</div>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #eeeeee;border-radius:6px;overflow:hidden;">
+        <tr style="background-color:#f8f9fa;">
+          <td style="padding:6px 10px;font-size:10px;font-weight:700;color:#666;border-bottom:1px solid #dee2e6;">종목</td>
+          <td style="padding:6px 10px;font-size:10px;font-weight:700;color:#666;border-bottom:1px solid #dee2e6;text-align:right;">확률</td>
+        </tr>
+        <tr>
+          <td style="padding:7px 10px;font-size:12px;color:#333;border-bottom:1px solid #f5f5f5;">삼성전자</td>
+          <td style="padding:7px 10px;font-size:12px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">87.3%</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:7px 10px;font-size:12px;color:#333;border-bottom:1px solid #f5f5f5;">SK하이닉스</td>
+          <td style="padding:7px 10px;font-size:12px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">82.1%</td>
+        </tr>
+        <tr>
+          <td style="padding:7px 10px;font-size:12px;color:#333;border-bottom:1px solid #f5f5f5;">LG에너지솔루션</td>
+          <td style="padding:7px 10px;font-size:12px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">78.6%</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:7px 10px;font-size:12px;color:#333;border-bottom:1px solid #f5f5f5;">현대차</td>
+          <td style="padding:7px 10px;font-size:12px;color:#E74C3C;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">74.2%</td>
+        </tr>
+        <tr>
+          <td style="padding:7px 10px;font-size:12px;color:#333;">POSCO홀딩스</td>
+          <td style="padding:7px 10px;font-size:12px;color:#E74C3C;text-align:right;font-weight:700;">71.8%</td>
+        </tr>
+      </table>
+    </td>
+
+    <!-- 간격 -->
+    <td width="4%"></td>
+
+    <!-- ── SELL 상위 5종목 ── -->
+    <td width="48%" valign="top">
+      <div style="font-size:13px;font-weight:700;color:#3498DB;margin-bottom:8px;">&#9660; SELL 상위 5</div>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #eeeeee;border-radius:6px;overflow:hidden;">
+        <tr style="background-color:#f8f9fa;">
+          <td style="padding:6px 10px;font-size:10px;font-weight:700;color:#666;border-bottom:1px solid #dee2e6;">종목</td>
+          <td style="padding:6px 10px;font-size:10px;font-weight:700;color:#666;border-bottom:1px solid #dee2e6;text-align:right;">확률</td>
+        </tr>
+        <tr>
+          <td style="padding:7px 10px;font-size:12px;color:#333;border-bottom:1px solid #f5f5f5;">셀트리온</td>
+          <td style="padding:7px 10px;font-size:12px;color:#3498DB;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">79.4%</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:7px 10px;font-size:12px;color:#333;border-bottom:1px solid #f5f5f5;">카카오</td>
+          <td style="padding:7px 10px;font-size:12px;color:#3498DB;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">74.8%</td>
+        </tr>
+        <tr>
+          <td style="padding:7px 10px;font-size:12px;color:#333;border-bottom:1px solid #f5f5f5;">한화솔루션</td>
+          <td style="padding:7px 10px;font-size:12px;color:#3498DB;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">72.1%</td>
+        </tr>
+        <tr style="background-color:#fafafa;">
+          <td style="padding:7px 10px;font-size:12px;color:#333;border-bottom:1px solid #f5f5f5;">CJ대한통운</td>
+          <td style="padding:7px 10px;font-size:12px;color:#3498DB;text-align:right;border-bottom:1px solid #f5f5f5;font-weight:700;">68.5%</td>
+        </tr>
+        <tr>
+          <td style="padding:7px 10px;font-size:12px;color:#333;">롯데케미칼</td>
+          <td style="padding:7px 10px;font-size:12px;color:#3498DB;text-align:right;font-weight:700;">66.3%</td>
+        </tr>
+      </table>
+    </td>
+
+  </tr>
+  </table>
+</td>
+</tr>
+
+<!-- 구분선 -->
+<tr><td style="padding:0 40px;"><div style="border-top:1px solid #eeeeee;"></div></td></tr>
+
+
+<!-- ════════════════════════════════════════════
+     ⑦ 종합 전망 (LLM)
+     ════════════════════════════════════════════ -->
+<tr>
+<td style="padding:24px 40px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+    <tr>
+      <td style="border-left:3px solid #D4A83A;padding-left:16px;">
+        <div style="font-size:12px;font-weight:700;color:#D4A83A;letter-spacing:2px;margin-bottom:8px;">AI MARKET OUTLOOK</div>
+        <div style="font-size:14px;color:#333333;line-height:1.75;">
+          오늘 시장은 반도체 중심의 외국인 매수세가 지수를 견인한 하루였습니다.
+          환율 하락과 VIX 안정이 긍정적이나, 금요일 미국 비농업 고용지표 발표를 앞두고 단기적으로 변동성이 확대될 가능성이 있습니다.
+          ML 모델은 대형 반도체·자동차주에 BUY 시그널을 유지하고 있으며, 바이오·화학 섹터에는 주의가 필요합니다.
+          다음 주 FOMC 의사록 공개 일정도 고려하여 포지션 관리에 유의하시기 바랍니다.
+        </div>
+      </td>
+    </tr>
+  </table>
+</td>
+</tr>
+
+
+<!-- ════════════════════════════════════════════
+     ⑧ 푸터
+     ════════════════════════════════════════════ -->
+<tr>
+<td style="background-color:#1a2332;padding:28px 40px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+    <!-- 면책 조항 -->
+    <tr>
+      <td style="padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,0.1);">
+        <div style="font-size:11px;color:#999999;line-height:1.7;">
+          <strong style="color:#bbbbbb;">면책 조항</strong><br>
+          본 리포트는 정보 제공 목적으로만 작성되었으며, 특정 금융상품의 매수, 매도 또는 보유를 권유하지 않습니다.
+          ML 모델의 예측 시그널은 과거 데이터 기반의 통계적 분석 결과이며, 미래 수익을 보장하지 않습니다.
+          투자 결정에 대한 최종 책임은 투자자 본인에게 있습니다.
+        </div>
+      </td>
+    </tr>
+    <!-- 구독 관리 -->
+    <tr>
+      <td style="padding:16px 0;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td>
+              <div style="font-size:13px;letter-spacing:4px;color:#D4A83A;font-weight:700;">ALCHEMETRIC</div>
+              <div style="font-size:11px;color:#666666;margin-top:4px;">AI-Powered Quant Trading Platform</div>
+            </td>
+            <td style="text-align:right;">
+              <a href="#unsubscribe" style="font-size:11px;color:#89B4F9;text-decoration:none;">구독 설정 변경</a>
+              <span style="color:#444444;margin:0 6px;">|</span>
+              <a href="#unsubscribe" style="font-size:11px;color:#89B4F9;text-decoration:none;">구독 해지</a>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    <!-- 발송 시각 -->
+    <tr>
+      <td>
+        <div style="font-size:11px;color:#555555;text-align:center;">
+          이 리포트는 2026년 3월 7일 19:00 KST에 자동 생성되었습니다.
+        </div>
+      </td>
+    </tr>
+  </table>
+</td>
+</tr>
+
+
+</table>
+<!-- /본문 컨테이너 -->
+
+</td></tr>
+</table>
+<!-- /전체 래퍼 -->
+
+</body>
+</html>

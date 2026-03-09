@@ -85,6 +85,8 @@
  FDR ──────┤─ KR 3Y 국채금리
  FRED ─────┤─ 거시지표 3개 (기준금리,달러인덱스,CPI)
  KIS API ──┤─ 일별 펀더멘털 (PER,PBR,EPS,외국인비율)
+           ├─ 투자자별 매매 (거래대금,매수/매도)
+           ├─ 시장별 투자자매매동향 (KOSPI/KOSDAQ)
            ├─ KRX 수급 (공매도,프로그램매매)
  DART API ─┤─ 분기 재무제표 (ROE,부채비율,매출)
            ├─ 공시 목록 + 센티먼트
@@ -158,6 +160,30 @@
 | `program_buy_volume` | KRX | 프로그램 매수량 |
 | `program_sell_volume` | KRX | 프로그램 매도량 |
 | `program_net_volume` | KRX | 프로그램 순매수량 |
+
+### Phase 5.5 — 시장 수급 데이터 확장
+
+| 항목 | API | 상태 |
+|------|-----|------|
+| 종목별 투자자 거래대금 (순매수/매수/매도) | `FHKST01010900` 필드 확장 | 🔶 구현 중 |
+| 시장 전체 투자자별 순매수 수량/거래대금 | `FHPTJ04040000` 신규 | 🔶 구현 중 |
+| 당일 거래대금 중 투자자별 비중(%) | 위 데이터 기반 계산 | 🔶 구현 중 |
+
+**종목별 확장 (`FHKST01010900` — 기존 3필드 → 12필드)**
+
+| 필드 | 설명 | 기존 |
+|------|------|:----:|
+| `prsn_ntby_qty` / `frgn_ntby_qty` / `orgn_ntby_qty` | 순매수 수량 | ✅ |
+| `prsn_ntby_tr_pbmn` / `frgn_ntby_tr_pbmn` / `orgn_ntby_tr_pbmn` | 순매수 거래대금 | 🆕 |
+| `prsn_shnu_vol` / `frgn_shnu_vol` / `orgn_shnu_vol` | 매수 거래량 | 🆕 |
+| `prsn_seln_vol` / `frgn_seln_vol` / `orgn_seln_vol` | 매도 거래량 | 🆕 |
+
+**시장 전체 (`FHPTJ04040000` — 신규)**
+
+| 필드 | 설명 |
+|------|------|
+| `frgn_ntby_qty` / `prsn_ntby_qty` / `orgn_ntby_qty` | 외국인/개인/기관 순매수 수량 |
+| `frgn_ntby_tr_pbmn` / `prsn_ntby_tr_pbmn` / `orgn_ntby_tr_pbmn` | 외국인/개인/기관 순매수 거래대금 |
 
 ### Known Issues (Phase 6~7에서 개선)
 
@@ -333,6 +359,7 @@ GET  /admin/health                    # 헬스체크
 - [x] Phase 4 — 뉴스 센티먼트 수집/분석 (Naver API + KR-FinBert-SC, 49피처)
 - [x] Phase 4.5 — 뉴스 센티먼트 대시보드 (사용자: 센티먼트 분석, 관리자: 수집/조회/현황)
 - [x] Phase 5 — DART 공시 + KRX 수급 데이터 (KIS API, 59피처) + 어드민 대시보드
+- [ ] Phase 5.5 — 시장 수급 데이터 확장 (투자자별 거래대금 + 시장 전체 매매동향)
 - [ ] Phase 6 — 리포트 생성 + 구독 서비스 (LLM 시장 분석 + 이메일/카카오톡/Slack 발송)
 - [ ] Phase 7 — 대안 데이터 + 섹터/상대강도
 - [ ] Phase 8 — 백테스팅 + 포트폴리오 최적화

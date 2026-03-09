@@ -47,6 +47,19 @@ class StockFundamental(ModelBase):
     foreign_net_buy = Column(BigInteger)
     individual_net_buy = Column(BigInteger)
 
+    # 투자자별 순매수 거래대금 (Phase 5.5)
+    inst_net_buy_amount = Column(BigInteger)
+    foreign_net_buy_amount = Column(BigInteger)
+    individual_net_buy_amount = Column(BigInteger)
+
+    # 투자자별 매수/매도 거래량 (Phase 5.5)
+    inst_buy_vol = Column(BigInteger)
+    foreign_buy_vol = Column(BigInteger)
+    individual_buy_vol = Column(BigInteger)
+    inst_sell_vol = Column(BigInteger)
+    foreign_sell_vol = Column(BigInteger)
+    individual_sell_vol = Column(BigInteger)
+
     created_at = Column(DateTime, default=datetime.now)
 
     __table_args__ = (
@@ -56,6 +69,36 @@ class StockFundamental(ModelBase):
 
     def __repr__(self):
         return f"<StockFundamental({self.market}:{self.code} {self.date})>"
+
+
+class MarketInvestorTrading(ModelBase):
+    """시장 전체 투자자별 매매동향 (KIS API FHPTJ04040000)"""
+
+    __tablename__ = "market_investor_trading"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    market = Column(String(10), nullable=False)     # KOSPI, KOSDAQ
+    date = Column(Date, nullable=False)
+
+    # 순매수 수량
+    foreign_net_buy_qty = Column(BigInteger)
+    inst_net_buy_qty = Column(BigInteger)
+    individual_net_buy_qty = Column(BigInteger)
+
+    # 순매수 거래대금
+    foreign_net_buy_amount = Column(BigInteger)
+    inst_net_buy_amount = Column(BigInteger)
+    individual_net_buy_amount = Column(BigInteger)
+
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("market", "date", name="uq_market_investor_trading"),
+        Index("idx_market_investor_lookup", "market", "date"),
+    )
+
+    def __repr__(self):
+        return f"<MarketInvestorTrading({self.market} {self.date})>"
 
 
 class FinancialStatement(ModelBase):

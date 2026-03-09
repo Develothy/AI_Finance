@@ -187,9 +187,108 @@ class KISClient:
         latest = items[0] if isinstance(items, list) else items
 
         return {
-            "inst_net_buy": _safe_int(latest.get("orgn_ntby_qty")),       # 기관 순매수
-            "foreign_net_buy": _safe_int(latest.get("frgn_ntby_qty")),    # 외국인 순매수
-            "individual_net_buy": _safe_int(latest.get("prsn_ntby_qty")), # 개인 순매수
+            # 순매수 수량 (기존)
+            "inst_net_buy": _safe_int(latest.get("orgn_ntby_qty")),
+            "foreign_net_buy": _safe_int(latest.get("frgn_ntby_qty")),
+            "individual_net_buy": _safe_int(latest.get("prsn_ntby_qty")),
+            # 순매수 거래대금 (Phase 5.5)
+            "inst_net_buy_amount": _safe_int(latest.get("orgn_ntby_tr_pbmn")),
+            "foreign_net_buy_amount": _safe_int(latest.get("frgn_ntby_tr_pbmn")),
+            "individual_net_buy_amount": _safe_int(latest.get("prsn_ntby_tr_pbmn")),
+            # 매수 거래량
+            "inst_buy_vol": _safe_int(latest.get("orgn_shnu_vol")),
+            "foreign_buy_vol": _safe_int(latest.get("frgn_shnu_vol")),
+            "individual_buy_vol": _safe_int(latest.get("prsn_shnu_vol")),
+            # 매도 거래량
+            "inst_sell_vol": _safe_int(latest.get("orgn_seln_vol")),
+            "foreign_sell_vol": _safe_int(latest.get("frgn_seln_vol")),
+            "individual_sell_vol": _safe_int(latest.get("prsn_seln_vol")),
+        }
+
+    # ============================================================
+    # 시장별 투자자매매동향 (KOSPI/KOSDAQ 전체)
+    # ============================================================
+
+    @retry(max_attempts=3, delay=1.0, backoff=2.0, module="kis_fetcher")
+    def fetch_market_investor_trading(
+        self,
+        market: str = "KOSPI",
+        target_date: str = None,
+    ) -> Optional[dict]:
+        """
+        시장별 투자자매매동향 일별 조회 (FHPTJ04040000)
+
+        Args:
+            market: KOSPI 또는 KOSDAQ
+            target_date: 조회 날짜 (YYYYMMDD). 기본=직전 거래일
+
+        Returns:
+            {
+                "market": str, "date": str,
+                "foreign_net_buy_qty": int, "inst_net_buy_qty": int, "individual_net_buy_qty": int,
+                "foreign_net_buy_amount": int, "inst_net_buy_amount": int, "individual_net_buy_amount": int,
+            }
+        """
+        if not self.available:
+            return None
+
+        if target_date is None:
+            try:
+                from core.market_calendar import previous_trading_day
+                dt = previous_trading_day(market)
+                target_date = dt.strftime("%Y%m%d")
+            except Exception:
+                target_date = datetime.now().strftime("%Y%m%d")
+
+        # 시장별 코드 매핑
+        market_code = "0001" if market.upper() == "KOSPI" else "1001"
+        market_ksp = "KSP" if market.upper() == "KOSPI" else "KSQ"
+
+        url = f"{self.base_url}/uapi/domestic-stock/v1/quotations/inquire-investor-daily-by-market"
+        headers = self._make_headers("FHPTJ04040000")
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "U",
+            "FID_INPUT_ISCD": market_code,
+            "FID_INPUT_DATE_1": target_date,
+            "FID_INPUT_DATE_2": target_date,
+            "FID_INPUT_ISCD_1": market_ksp,
+            "FID_INPUT_ISCD_2": "",
+        }
+
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if data.get("rt_cd") != "0":
+            logger.warning(
+                f"KIS market-investor 오류: {data.get('msg1', '')}",
+                "fetch_market_investor_trading",
+                {"market": market, "date": target_date},
+            )
+            return None
+
+        items = data.get("output", [])
+        if not items:
+            return None
+
+        row = items[0] if isinstance(items, list) else items
+
+        date_str = row.get("stck_bsop_date", target_date)
+        # YYYYMMDD → YYYY-MM-DD
+        if len(date_str) == 8:
+            date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+
+        return {
+            "market": market.upper(),
+            "date": date_str,
+            # 순매수 수량
+            "foreign_net_buy_qty": _safe_int(row.get("frgn_ntby_qty")),
+            "inst_net_buy_qty": _safe_int(row.get("orgn_ntby_qty")),
+            "individual_net_buy_qty": _safe_int(row.get("prsn_ntby_qty")),
+            # 순매수 거래대금
+            "foreign_net_buy_amount": _safe_int(row.get("frgn_ntby_tr_pbmn")),
+            "inst_net_buy_amount": _safe_int(row.get("orgn_ntby_tr_pbmn")),
+            "individual_net_buy_amount": _safe_int(row.get("prsn_ntby_tr_pbmn")),
         }
 
     # ============================================================

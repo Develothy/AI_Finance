@@ -137,8 +137,75 @@ class FundamentalService:
         }
 
     # ============================================================
+    # 시장 전체 투자자별 매매동향 수집 (Phase 5.5)
+    # ============================================================
+
+    def collect_market_investor_trading(
+        self,
+        markets: list[str] = None,
+        date: str = None,
+    ) -> dict:
+        """
+        KIS API로 시장별 투자자매매동향 수집 → DB 저장
+
+        Args:
+            markets: ["KOSPI", "KOSDAQ"] (기본: 둘 다)
+            date: 조회 날짜 YYYYMMDD (기본: 직전 거래일)
+        """
+        if markets is None:
+            markets = ["KOSPI", "KOSDAQ"]
+
+        results = []
+        records = []
+
+        for market in markets:
+            data = self.kis_client.fetch_market_investor_trading(market, date)
+            if data:
+                records.append(data)
+                results.append({"market": market, "status": "ok"})
+                logger.info(
+                    f"시장 투자자 매매동향 수집: {market} {data.get('date')}",
+                    "collect_market_investor_trading",
+                )
+            else:
+                results.append({"market": market, "status": "failed"})
+
+        saved = 0
+        if records:
+            with database.session() as session:
+                repo = FundamentalRepository(session)
+                saved = repo.upsert_market_investor_trading(records)
+
+        return {
+            "markets": results,
+            "saved": saved,
+        }
+
+    # ============================================================
     # 조회
     # ============================================================
+
+    def get_market_investor_trading(
+        self,
+        market: str,
+        date: str = None,
+    ) -> dict | None:
+        """시장별 투자자매매동향 조회"""
+        with database.session() as session:
+            repo = FundamentalRepository(session)
+            row = repo.get_market_investor_trading(market, date)
+            if not row:
+                return None
+            return {
+                "market": row.market,
+                "date": str(row.date) if row.date else None,
+                "foreign_net_buy_qty": int(row.foreign_net_buy_qty) if row.foreign_net_buy_qty else None,
+                "inst_net_buy_qty": int(row.inst_net_buy_qty) if row.inst_net_buy_qty else None,
+                "individual_net_buy_qty": int(row.individual_net_buy_qty) if row.individual_net_buy_qty else None,
+                "foreign_net_buy_amount": int(row.foreign_net_buy_amount) if row.foreign_net_buy_amount else None,
+                "inst_net_buy_amount": int(row.inst_net_buy_amount) if row.inst_net_buy_amount else None,
+                "individual_net_buy_amount": int(row.individual_net_buy_amount) if row.individual_net_buy_amount else None,
+            }
 
     def get_fundamentals(
         self,
@@ -213,6 +280,16 @@ class FundamentalService:
             "inst_net_buy": int(f.inst_net_buy) if f.inst_net_buy else None,
             "foreign_net_buy": int(f.foreign_net_buy) if f.foreign_net_buy else None,
             "individual_net_buy": int(f.individual_net_buy) if f.individual_net_buy else None,
+            # Phase 5.5
+            "inst_net_buy_amount": int(f.inst_net_buy_amount) if f.inst_net_buy_amount else None,
+            "foreign_net_buy_amount": int(f.foreign_net_buy_amount) if f.foreign_net_buy_amount else None,
+            "individual_net_buy_amount": int(f.individual_net_buy_amount) if f.individual_net_buy_amount else None,
+            "inst_buy_vol": int(f.inst_buy_vol) if f.inst_buy_vol else None,
+            "foreign_buy_vol": int(f.foreign_buy_vol) if f.foreign_buy_vol else None,
+            "individual_buy_vol": int(f.individual_buy_vol) if f.individual_buy_vol else None,
+            "inst_sell_vol": int(f.inst_sell_vol) if f.inst_sell_vol else None,
+            "foreign_sell_vol": int(f.foreign_sell_vol) if f.foreign_sell_vol else None,
+            "individual_sell_vol": int(f.individual_sell_vol) if f.individual_sell_vol else None,
         }
 
     @staticmethod

@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from config import settings
-from models import StockFundamental, FinancialStatement
+from models import StockFundamental, FinancialStatement, MarketInvestorTrading
 
 
 class FundamentalRepository:
@@ -50,6 +50,9 @@ class FundamentalRepository:
         update_fields = [
             "per", "pbr", "eps", "bps", "market_cap", "div_yield",
             "foreign_ratio", "inst_net_buy", "foreign_net_buy", "individual_net_buy",
+            "inst_net_buy_amount", "foreign_net_buy_amount", "individual_net_buy_amount",
+            "inst_buy_vol", "foreign_buy_vol", "individual_buy_vol",
+            "inst_sell_vol", "foreign_sell_vol", "individual_sell_vol",
         ]
 
         return self._upsert(
@@ -83,6 +86,40 @@ class FundamentalRepository:
             StockFundamental.market == market,
             StockFundamental.code == code,
         ).order_by(StockFundamental.date.desc()).first()
+
+    # ============================================================
+    # MarketInvestorTrading
+    # ============================================================
+
+    def upsert_market_investor_trading(self, records: list[dict]) -> int:
+        """시장 전체 투자자별 매매동향 Upsert"""
+        if not records:
+            return 0
+
+        update_fields = [
+            "foreign_net_buy_qty", "inst_net_buy_qty", "individual_net_buy_qty",
+            "foreign_net_buy_amount", "inst_net_buy_amount", "individual_net_buy_amount",
+        ]
+
+        return self._upsert(
+            MarketInvestorTrading, records, "uq_market_investor_trading",
+            ["market", "date"],
+            update_fields,
+            extra_set={"created_at": datetime.now()},
+        )
+
+    def get_market_investor_trading(
+        self,
+        market: str,
+        date: Optional[str] = None,
+    ) -> Optional[MarketInvestorTrading]:
+        """시장별 투자자 매매동향 조회 (특정일 또는 최신)"""
+        query = self.session.query(MarketInvestorTrading).filter(
+            MarketInvestorTrading.market == market,
+        )
+        if date:
+            query = query.filter(MarketInvestorTrading.date == date)
+        return query.order_by(MarketInvestorTrading.date.desc()).first()
 
     # ============================================================
     # FinancialStatement

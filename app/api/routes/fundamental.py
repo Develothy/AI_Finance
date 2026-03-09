@@ -14,6 +14,9 @@ from api.schemas import (
     StockFundamentalResponse,
     FinancialStatementResponse,
     FundamentalSummaryResponse,
+    MarketInvestorCollectRequest,
+    MarketInvestorCollectResponse,
+    MarketInvestorTradingResponse,
 )
 from services import fundamental_service
 
@@ -47,9 +50,31 @@ def collect_financial_statements(req: FinancialCollectRequest):
     return FinancialCollectResponse(**result)
 
 
+@router.post("/collect/market-investor", response_model=MarketInvestorCollectResponse)
+def collect_market_investor_trading(req: MarketInvestorCollectRequest):
+    """시장별 투자자매매동향 수집 실행 (Phase 5.5)"""
+    result = fundamental_service.collect_market_investor_trading(
+        markets=req.markets,
+        date=req.date,
+    )
+    return MarketInvestorCollectResponse(**result)
+
+
 # ============================================================
 # 조회
 # ============================================================
+
+@router.get("/market-investor/{market}", response_model=MarketInvestorTradingResponse)
+def get_market_investor_trading(
+    market: str,
+    date: Optional[str] = Query(default=None),
+):
+    """시장별 투자자매매동향 조회 (Phase 5.5)"""
+    result = fundamental_service.get_market_investor_trading(market, date)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"투자자매매동향 없음: {market}")
+    return MarketInvestorTradingResponse(**result)
+
 
 @router.get("/summary/{code}", response_model=FundamentalSummaryResponse)
 def get_summary(

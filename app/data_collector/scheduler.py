@@ -106,25 +106,12 @@ class DataScheduler:
             loaded = 0
             for job_model in jobs:
                 try:
+                    ml_config = None
                     if job_model.job_type == "ml_train":
-                        config = session.query(MLTrainConfig).filter(
+                        ml_config = session.query(MLTrainConfig).filter(
                             MLTrainConfig.job_id == job_model.id
                         ).first()
-                        self.add_ml_train_job(job_model, config)
-                    elif job_model.job_type == "fundamental_collect":
-                        self.add_fundamental_job(job_model)
-                    elif job_model.job_type == "macro_collect":
-                        self.add_macro_job(job_model)
-                    elif job_model.job_type == "news_collect":
-                        self.add_news_job(job_model)
-                    elif job_model.job_type == "disclosure_collect":
-                        self.add_disclosure_job(job_model)
-                    elif job_model.job_type == "market_investor_collect":
-                        self.add_market_investor_job(job_model)
-                    elif job_model.job_type == "supply_collect":
-                        self.add_supply_job(job_model)
-                    else:
-                        self.add_job_from_model(job_model)
+                    self._dispatch_job(job_model, ml_config)
                     loaded += 1
                 except Exception as e:
                     logger.warning(f"잡 등록 실패: {job_model.job_name} - {e}", "load_jobs_from_db")
@@ -777,6 +764,72 @@ class DataScheduler:
         logger.info(f"수급 수집 스케줄 등록", "add_supply_job",
                     {"job_id": job_name, "market": market})
 
+    def add_full_collect_job(self, job_model):
+        """전체 데이터 일괄 수집 크론 잡 등록 (가격→재무→거시→뉴스→공시→수급)"""
+        job_name = job_model.job_name
+        cron_expr = job_model.cron_expr
+        market = job_model.market or "KOSPI"
+        days_back = job_model.days_back or 7
+
+        def full_collect_job_func():
+            from models import ScheduleJob as SJ, ScheduleLog
+            from api.routes.admin import _run_full_collect
+
+            logger.info(f"일괄 수집 스케줄 시작", "full_collect_cron_job",
+                        {"job_id": job_name, "market": market})
+
+            log_id = None
+            with database.session() as session:
+                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
+                if job_row:
+                    log = ScheduleLog(
+                        job_id=job_row.id,
+                        started_at=datetime.now(),
+                        status="running",
+                        trigger_by="scheduler",
+                    )
+                    session.add(log)
+                    session.flush()
+                    log_id = log.id
+
+            try:
+                result = _run_full_collect(market, days_back)
+
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "success" if result.get("failed", 0) == 0 else "partial"
+                            log_entry.success_count = result.get("success", 0)
+                            log_entry.failed_count = result.get("failed", 0)
+                            log_entry.db_saved_count = result.get("saved", 0)
+                            log_entry.message = result.get("message", "")[:500]
+
+            except Exception as e:
+                if log_id:
+                    with database.session() as session:
+                        log_entry = session.query(ScheduleLog).filter(
+                            ScheduleLog.id == log_id
+                        ).first()
+                        if log_entry:
+                            log_entry.finished_at = datetime.now()
+                            log_entry.status = "failed"
+                            log_entry.message = str(e)[:500]
+                logger.error(f"일괄 수집 스케줄 실패", "full_collect_cron_job",
+                             {"error": str(e)})
+
+        trigger = parse_cron_expr(cron_expr)
+        job = self.scheduler.add_job(
+            full_collect_job_func, trigger=trigger, id=job_name,
+            replace_existing=True, max_instances=1,
+        )
+        self._jobs[job_name] = job
+        logger.info(f"일괄 수집 스케줄 등록", "add_full_collect_job",
+                    {"job_id": job_name, "market": market})
+
     def add_job_from_model(self, job_model):
         # DB ScheduleJob 모델에서 작업 등록
         self.add_cron_job(
@@ -829,6 +882,25 @@ class DataScheduler:
             for job in self.scheduler.get_jobs()
         }
 
+    def _dispatch_job(self, job_model, ml_config=None):
+        """job_type별 올바른 등록 메서드 호출"""
+        job_type = getattr(job_model, "job_type", "data_collect")
+        dispatch = {
+            "ml_train": lambda: self.add_ml_train_job(job_model, ml_config),
+            "fundamental_collect": lambda: self.add_fundamental_job(job_model),
+            "market_investor_collect": lambda: self.add_market_investor_job(job_model),
+            "macro_collect": lambda: self.add_macro_job(job_model),
+            "news_collect": lambda: self.add_news_job(job_model),
+            "disclosure_collect": lambda: self.add_disclosure_job(job_model),
+            "supply_collect": lambda: self.add_supply_job(job_model),
+            "full_collect": lambda: self.add_full_collect_job(job_model),
+        }
+        handler = dispatch.get(job_type)
+        if handler:
+            handler()
+        else:
+            self.add_job_from_model(job_model)
+
     def sync_job(self, job_name: str, action: str = "add", job_model=None, ml_config=None):
         if not self.scheduler.running:
             return
@@ -836,42 +908,10 @@ class DataScheduler:
             if action == "remove":
                 self.remove_job(job_name)
             elif action == "add" and job_model and job_model.enabled:
-                job_type = getattr(job_model, "job_type", "data_collect")
-                if job_type == "ml_train":
-                    self.add_ml_train_job(job_model, ml_config)
-                elif job_type == "fundamental_collect":
-                    self.add_fundamental_job(job_model)
-                elif job_type == "market_investor_collect":
-                    self.add_market_investor_job(job_model)
-                elif job_type == "macro_collect":
-                    self.add_macro_job(job_model)
-                elif job_type == "news_collect":
-                    self.add_news_job(job_model)
-                elif job_type == "disclosure_collect":
-                    self.add_disclosure_job(job_model)
-                elif job_type == "supply_collect":
-                    self.add_supply_job(job_model)
-                else:
-                    self.add_job_from_model(job_model)
+                self._dispatch_job(job_model, ml_config)
             elif action == "update":
                 self.remove_job(job_name)
                 if job_model and job_model.enabled:
-                    job_type = getattr(job_model, "job_type", "data_collect")
-                    if job_type == "ml_train":
-                        self.add_ml_train_job(job_model, ml_config)
-                    elif job_type == "fundamental_collect":
-                        self.add_fundamental_job(job_model)
-                    elif job_type == "market_investor_collect":
-                        self.add_market_investor_job(job_model)
-                    elif job_type == "macro_collect":
-                        self.add_macro_job(job_model)
-                    elif job_type == "news_collect":
-                        self.add_news_job(job_model)
-                    elif job_type == "disclosure_collect":
-                        self.add_disclosure_job(job_model)
-                    elif job_type == "supply_collect":
-                        self.add_supply_job(job_model)
-                    else:
-                        self.add_job_from_model(job_model)
+                    self._dispatch_job(job_model, ml_config)
         except Exception as e:
             logger.warning(f"스케줄러 동기화 실패 ({action} {job_name}): {e}", "sync_job")

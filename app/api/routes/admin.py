@@ -481,9 +481,150 @@ def delete_schedule_job(job_id: int):
     return {"deleted": True, "id": job_id, "job_name": job_name}
 
 
+def _run_job_by_type(log_id: int, job_type: str, market: str, sector: str, days_back: int):
+    """job_type별 올바른 서비스를 호출하고 ScheduleLog 업데이트 (백그라운드 스레드)"""
+    try:
+        if job_type == "fundamental_collect":
+            from services import FundamentalService
+            result = FundamentalService().collect_fundamentals(market=market)
+
+        elif job_type == "market_investor_collect":
+            from services import FundamentalService
+            result = FundamentalService().collect_market_investor_trading()
+
+        elif job_type == "macro_collect":
+            from services import MacroService
+            result = MacroService().collect(days_back=days_back or 30)
+
+        elif job_type == "news_collect":
+            from services import NewsService
+            news_market = market if market in ("KR", "US") else "KR"
+            result = NewsService().collect(market=news_market)
+
+        elif job_type == "disclosure_collect":
+            from services import DisclosureService
+            result = DisclosureService().collect_disclosures(market=market, days=days_back or 60)
+
+        elif job_type == "supply_collect":
+            from services import DisclosureService
+            result = DisclosureService().collect_supply_demand(market=market, days=days_back or 60)
+
+        elif job_type == "full_collect":
+            result = _run_full_collect(market, days_back)
+
+        else:
+            # data_collect (기본) — 자체적으로 log 업데이트
+            from services import StockService
+            StockService().run_schedule_job(log_id, market, sector, days_back)
+            return
+
+        # ScheduleLog 업데이트
+        with database.session() as session:
+            log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
+            if log_entry:
+                log_entry.finished_at = datetime.now()
+                log_entry.status = "success"
+                log_entry.success_count = result.get("success", result.get("stock_success", 0))
+                log_entry.failed_count = result.get("failed", result.get("stock_failed", 0))
+                log_entry.db_saved_count = result.get("saved", 0)
+                log_entry.message = result.get("message", "")[:500]
+
+    except Exception as e:
+        logger.error(f"잡 실행 실패: {job_type}", "run_job_by_type", {"error": str(e)})
+        with database.session() as session:
+            log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
+            if log_entry:
+                log_entry.finished_at = datetime.now()
+                log_entry.status = "failed"
+                log_entry.message = str(e)[:500]
+
+
+def _run_full_collect(market: str, days_back: int) -> dict:
+    """전체 데이터 일괄 수집 (가격→재무→거시→뉴스→공시→수급)"""
+    from datetime import timedelta
+    from services import StockService, FundamentalService, MacroService
+    from services import NewsService, DisclosureService
+    from data_collector import DataPipeline
+
+    steps = []
+    total_saved = 0
+    total_failed = 0
+
+    # 1) 가격 데이터 수집
+    try:
+        pipeline = DataPipeline()
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=days_back or 7)).strftime("%Y-%m-%d")
+        fetch_result = pipeline.fetch(start_date=start_date, end_date=end_date, market=market)
+        if fetch_result.data or fetch_result.stock_info:
+            svc = StockService(pipeline=pipeline)
+            if fetch_result.data:
+                total_saved += svc.save_to_db(fetch_result.data, fetch_result.market)
+            if fetch_result.stock_info:
+                svc._save_stock_info(fetch_result.stock_info)
+        steps.append(f"가격: {fetch_result.success_count}종목")
+    except Exception as e:
+        steps.append(f"가격: 실패({e})")
+        total_failed += 1
+
+    # 2) 재무(KIS) 수집
+    try:
+        r = FundamentalService().collect_fundamentals(market=market)
+        total_saved += r.get("saved", 0)
+        steps.append(f"재무: {r.get('saved', 0)}건")
+    except Exception as e:
+        steps.append(f"재무: 실패({e})")
+        total_failed += 1
+
+    # 3) 거시지표 수집
+    try:
+        r = MacroService().collect(days_back=days_back or 30)
+        total_saved += r.get("saved", 0)
+        steps.append(f"거시: {r.get('saved', 0)}건")
+    except Exception as e:
+        steps.append(f"거시: 실패({e})")
+        total_failed += 1
+
+    # 4) 뉴스 수집
+    try:
+        news_market = market if market in ("KR", "US") else "KR"
+        r = NewsService().collect(market=news_market)
+        total_saved += r.get("saved", 0)
+        steps.append(f"뉴스: {r.get('saved', 0)}건")
+    except Exception as e:
+        steps.append(f"뉴스: 실패({e})")
+        total_failed += 1
+
+    # 5) 공시(DART) 수집
+    try:
+        r = DisclosureService().collect_disclosures(market=market, days=days_back or 60)
+        total_saved += r.get("saved", 0)
+        steps.append(f"공시: {r.get('saved', 0)}건")
+    except Exception as e:
+        steps.append(f"공시: 실패({e})")
+        total_failed += 1
+
+    # 6) 수급(KRX) 수집
+    try:
+        r = DisclosureService().collect_supply_demand(market=market, days=days_back or 60)
+        total_saved += r.get("saved", 0)
+        steps.append(f"수급: {r.get('saved', 0)}건")
+    except Exception as e:
+        steps.append(f"수급: 실패({e})")
+        total_failed += 1
+
+    msg = " | ".join(steps)
+    return {
+        "saved": total_saved,
+        "failed": total_failed,
+        "success": 6 - total_failed,
+        "message": f"일괄 수집 완료: {msg}",
+    }
+
+
 @router.post("/scheduler/jobs/{job_id}/run")
 def run_schedule_job(job_id: int, req: Optional[RunJobRequest] = Body(default=None)):
-    # 스케줄 즉시 실행 (백그라운드) - 데이터 수집 / ML 학습 통합
+    # 스케줄 즉시 실행 (백그라운드) - 모든 job_type 지원
     base_date = req.base_date if req else None
 
     with database.session() as session:
@@ -570,11 +711,9 @@ def run_schedule_job(job_id: int, req: Optional[RunJobRequest] = Body(default=No
         thread = threading.Thread(target=_run_ml, daemon=True)
         thread.start()
     else:
-        from services import StockService
-        svc = StockService()
         thread = threading.Thread(
-            target=svc.run_schedule_job,
-            args=(log_id, job_market, job_sector, job_days_back),
+            target=_run_job_by_type,
+            args=(log_id, job_type, job_market, job_sector, job_days_back),
             daemon=True,
         )
         thread.start()

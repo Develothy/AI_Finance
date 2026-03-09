@@ -231,7 +231,7 @@ class ScheduleJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_job_type(self):
-        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect", "disclosure_collect", "supply_collect", "market_investor_collect")
+        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect", "disclosure_collect", "supply_collect", "market_investor_collect", "full_collect")
         if self.job_type not in valid_types:
             raise ValueError(f"job_type은 {valid_types} 중 하나여야 합니다.")
         return self

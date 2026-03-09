@@ -16,11 +16,13 @@ Usage:
 from pathlib import Path
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 from config import settings
+from core import get_logger
 
+logger = get_logger("database")
 
 # 모델 정의용 Base
 ModelBase = declarative_base()
@@ -71,9 +73,40 @@ class _Database:
             session.close()
 
     def create_tables(self):
-        """테이블 생성"""
+        """테이블 생성 + 누락 컬럼 자동 추가"""
         self._ensure_initialized()
         ModelBase.metadata.create_all(self._engine)
+        self._migrate_missing_columns()
+
+    def _migrate_missing_columns(self):
+        """모델에 정의된 컬럼 중 DB에 없는 컬럼을 ALTER TABLE로 추가"""
+        insp = inspect(self._engine)
+
+        for table_name, table in ModelBase.metadata.tables.items():
+            if not insp.has_table(table_name):
+                continue
+
+            existing_cols = {c["name"] for c in insp.get_columns(table_name)}
+            for col in table.columns:
+                if col.name in existing_cols:
+                    continue
+
+                col_type = col.type.compile(dialect=self._engine.dialect)
+                nullable = "NULL" if col.nullable else "NOT NULL"
+                sql = f'ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type} {nullable}'
+
+                try:
+                    with self._engine.begin() as conn:
+                        conn.execute(text(sql))
+                    logger.info(
+                        f"컬럼 추가: {table_name}.{col.name} ({col_type})",
+                        "_migrate_missing_columns",
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"컬럼 추가 실패: {table_name}.{col.name} - {e}",
+                        "_migrate_missing_columns",
+                    )
 
     def drop_tables(self):
         """테이블 삭제"""

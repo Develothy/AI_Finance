@@ -2,7 +2,7 @@
 
 > *Alchemy + Metric* — 시장 데이터를 가치 있는 투자 시그널로 변환하는 AI 기반 퀀트 트레이딩 플랫폼
 
-한국·미국 주식 시장의 가격 데이터, 재무제표, 거시경제 지표, 뉴스 센티먼트까지 수집하고, 머신러닝·딥러닝 분석을 거쳐 최종 매매 시그널을 생성하는 개인 프로젝트입니다.
+한국·미국 주식 시장의 가격 데이터, 재무제표, 거시경제 지표, 뉴스 센티먼트, DART 공시, 수급 데이터까지 수집하고, 머신러닝·딥러닝 분석을 거쳐 최종 매매 시그널을 생성하는 개인 프로젝트입니다.
 
 ## Tech Stack
 
@@ -20,43 +20,43 @@
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                   EXTERNAL DATA SOURCES                  │
-├──────────┬──────────┬──────────┬──────────┬──────────────┤
-│ yfinance │   FDR    │ KIS API  │ DART API │ Naver News.  │
-│ (주가+    │  (KR3Y)  │ (펀더멘털) │ (재무+공시) │ (뉴스 센티먼트) │
-│  거시7)   │          │          │          │              │
-└──────┬───┴────┬─────┴────┬─────┴────┬─────┴──────┬───────┘
-       └────────┴──────────┴──────────┴────────────┘
-                             │
-             ┌───────────────┼───────────────┐
-             ▼               ▼               ▼
-   ┌──────────────────┐ ┌──────────────┐ ┌────────────────┐
-   │    M0: 데이터 수집  │ │   M1: 데이터   │ │    M2: 피처     │
-   │    (원시 데이터)    │ │   분석 (NLP)* │ │     엔지니어링    │
-   └────────┬─────────┘ └──────┬───────┘ └───────┬────────┘
-            └──────────────────┴─────────────────┘
-                             │
-                   ┌─────────▼─────────┐
-                   │   PostgreSQL 15   │ :5432
-                   │   feature_store   │
-                   └─────────┬─────────┘
-                             │
-                   ┌─────────▼─────────┐
-                   │  M3: ML / M4: DL* │
-                   │  (학습/예측)        │
-                   └─────────┬─────────┘
-                             │
-                   ┌─────────▼─────────┐
-                   │   M5: 백테스팅*     │
-                   └─────────┬─────────┘
-                             │
-             ┌───────────────┼───────────────┐
-             ▼               ▼               ▼
-   ┌────────────────┐ ┌─────────────┐ ┌──────────────┐
-   │   M6: 매매*     │ │   M7: User  │ │  M8: Admin   │
-   │   (모의+실매매)   │ │  Dash :8501 │ │  Dash :8502  │
-   └────────────────┘ └─────────────┘ └──────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                       EXTERNAL DATA SOURCES                        │
+├──────────┬──────────┬───────────┬──────────┬──────────┬────────────┤
+│ yfinance │ FDR/FRED │  KIS API  │ DART API │  Naver   │    KRX     │
+│ (주가+    │ (KR3Y+   │ (펀더멘털+  │ (재무+공시) │  News    │  (수급:     │
+│  거시7)   │  거시3)   │  수급)     │          │(센티먼트) │  KIS API)  │
+└──────┬───┴────┬─────┴────┬─────┴────┬─────┴────┬─────┴─────┬──────┘
+       └────────┴──────────┴──────────┴──────────┴───────────┘
+                                │
+                ┌───────────────┼───────────────┐
+                ▼               ▼               ▼
+      ┌──────────────────┐ ┌──────────────┐ ┌────────────────┐
+      │    M0: 데이터 수집  │ │   M1: 데이터   │ │    M2: 피처     │
+      │    (원시 데이터)    │ │   분석 (NLP)  │ │     엔지니어링    │
+      └────────┬─────────┘ └──────┬───────┘ └───────┬────────┘
+               └──────────────────┴─────────────────┘
+                                │
+                      ┌─────────▼─────────┐
+                      │   PostgreSQL 15   │ :5432
+                      │   feature_store   │
+                      └─────────┬─────────┘
+                                │
+                      ┌─────────▼─────────┐
+                      │  M3: ML / M4: DL* │
+                      │  (학습/예측)        │
+                      └─────────┬─────────┘
+                                │
+                      ┌─────────▼─────────┐
+                      │   M5: 백테스팅*     │
+                      └─────────┬─────────┘
+                                │
+                ┌───────────────┼───────────────┐
+                ▼               ▼               ▼
+      ┌────────────────┐ ┌─────────────┐ ┌──────────────┐
+      │   M6: 매매*     │ │   M7: User  │ │  M8: Admin   │
+      │   (모의+실매매)   │ │  Dash :8501 │ │  Dash :8502  │
+      └────────────────┘ └─────────────┘ └──────────────┘
 
    * = 개발 예정
 ```
@@ -65,15 +65,16 @@
 
 | No. | 모듈 | 설명 | 상태 |
 |-----|------|------|------|
-| 0 | 데이터 수집 | 주가, 펀더멘털, 거시경제, 수급*, 섹터* | ✅ 완료 |
-| 1 | 데이터 분석 | 뉴스 NLP (KR-FinBert-SC), DART 공시*, 대안* | 🔶 부분 |
-| 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~4 피처 생성 (49/57~63) | 🔶 부분 |
+| 0 | 데이터 수집 | 주가, 펀더멘털, 거시경제, 뉴스, DART 공시, KRX 수급 | ✅ 완료 |
+| 1 | 데이터 분석 | 뉴스 NLP (KR-FinBert-SC), DART 공시 센티먼트, 대안* | 🔶 부분 |
+| 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~5 피처 생성 (59/64~66) | 🔶 부분 |
 | 3 | 머신러닝 | RF / XGBoost / LightGBM, Optuna 튜닝 | ✅ 완료 |
 | 4 | 딥러닝 | LSTM, Transformer, 강화학습 | 🔲 예정 |
 | 5 | 백테스팅/포트폴리오 | 전략 검증, 포트폴리오 최적화 | 🔲 예정 |
 | 6 | 매매 시스템 | 모의투자 + 실매매 (KIS/Alpaca) | 🔲 예정 |
 | 7 | 사용자 대시보드 | 시장 현황, 종목 분석, 뉴스 센티먼트 (Streamlit :8501) | ✅ 완료 |
-| 8 | 관리자 대시보드 | 시스템 모니터링, ML 관리, 뉴스 관리 (Streamlit :8502) | ✅ 완료 |
+| 8 | 관리자 대시보드 | 시스템 모니터링, ML/뉴스/공시/수급 관리 (Streamlit :8502) | ✅ 완료 |
+| 9 | 리포트/구독 | LLM 시장 리포트 자동 생성, 이메일/카카오톡/Slack 구독 발송 | 🔲 예정 |
 
 ## Data Flow
 
@@ -82,10 +83,12 @@
  yfinance ─┬─ 주가 (KR/US)
            ├─ 거시지표 7개 (환율,VIX,KOSPI,S&P500,WTI,Gold,US10Y)
  FDR ──────┤─ KR 3Y 국채금리
+ FRED ─────┤─ 거시지표 3개 (기준금리,달러인덱스,CPI)
  KIS API ──┤─ 일별 펀더멘털 (PER,PBR,EPS,외국인비율)
+           ├─ KRX 수급 (공매도,프로그램매매)
  DART API ─┤─ 분기 재무제표 (ROE,부채비율,매출)
+           ├─ 공시 목록 + 센티먼트
  Naver ────┤─ 뉴스 센티먼트 (KR-FinBert-SC)
- KRX* ─────┤─ 수급 (공매도,대차,프로그램매매,신용잔고)
            │
            ▼
 [ Module 0: 데이터 수집 ]
@@ -94,14 +97,15 @@
 [ PostgreSQL ]
  stock_price · stock_info · stock_fundamental
  financial_statement · macro_indicator · news_sentiment
+ dart_disclosure · krx_supply_demand
            │
            ▼
-[ Module 1: 데이터 분석* ]
- 뉴스 NLP · DART 공시 · 대안 데이터
+[ Module 1: 데이터 분석 ]
+ 뉴스 NLP · DART 공시 센티먼트 · 대안 데이터*
            │
            ▼
 [ Module 2: 피처 엔지니어링 ]
- Phase1~4(49) + Phase5~8(+8~14*) = 57~63 Features
+ Phase1~5(59) + Phase6~7(+5~7*) = 64~66 Features
            │
            ▼
 [ feature_store ]
@@ -127,24 +131,38 @@
 * = 개발 예정
 ```
 
-## Feature Engineering (8-Phase)
+## Feature Engineering (7-Phase)
 
-| Phase | 카테고리       | 피처 수 | 상태 |
-|-------|---------------|--------|------|
-| 1     | 기술적 지표     | 24     | ✅   |
-| 2     | 펀더멘털       | +9     | ✅   |
-| 3     | 거시경제       | +11    | ✅   |
-| 4     | 뉴스 센티먼트   | +5     | ✅   |
-| 5     | DART 공시      | +5~7   | 🔲   |
-| 6     | 수급 데이터     | +4~5   | 🔲   |
-| 7     | 대안 데이터     | +2~3   | 🔲   |
-| 8     | 섹터/상대강도   | +2     | 🔲   |
-|       | **합계 (현재 49)** | **57~63** |  |
+| Phase | 카테고리           | 피처 수 | 상태 |
+|-------|-------------------|--------|------|
+| 1     | 기술적 지표         | 24     | ✅   |
+| 2     | 펀더멘털           | +9     | ✅   |
+| 3     | 거시경제           | +11    | ✅   |
+| 4     | 뉴스 센티먼트       | +5     | ✅   |
+| 5     | DART 공시 + 수급   | +10    | ✅   |
+| 6     | 대안 데이터         | +2~3   | 🔲   |
+| 7     | 섹터/상대강도       | +2~4   | 🔲   |
+|       | **합계 (현재 59)** | **64~66** |  |
 
-### Known Issues (Phase 5~8에서 개선)
+### Phase 5 피처 상세
+
+| 피처명 | 소스 | 설명 |
+|--------|------|------|
+| `disclosure_count_30d` | DART | 30일간 공시 건수 |
+| `days_since_disclosure` | DART | 마지막 공시 이후 경과일 |
+| `disclosure_sentiment` | DART | 공시 센티먼트 점수 |
+| `disclosure_type_score` | DART | 공시 유형별 가중 점수 |
+| `disclosure_volume_change` | DART | 공시 전후 거래량 변화 |
+| `short_selling_volume` | KRX | 공매도 거래량 |
+| `short_selling_ratio` | KRX | 공매도 비율 |
+| `program_buy_volume` | KRX | 프로그램 매수량 |
+| `program_sell_volume` | KRX | 프로그램 매도량 |
+| `program_net_volume` | KRX | 프로그램 순매수량 |
+
+### Known Issues (Phase 6~7에서 개선)
 
 - **뉴스 센티먼트 종목/시장 구분 문제**: 현재 네이버 검색 키워드 기반으로 `code` 할당. "삼성전자 주가"로 검색 시 시장 기사·섹터 기사도 `code="005930"`으로 저장되어 종목 센티먼트와 시장 센티먼트가 혼재됨. 같은 기사가 시장 키워드로도 수집되면 `code=NULL`로 중복 저장 → 이중 카운팅 발생 가능.
-- **종목 간 뉴스 상관관계 미반영**: 하이닉스 피처 계산 시 삼성전자 뉴스 미반영 (동일 섹터 영향 무시). Phase 8 섹터/상대강도에서 섹터 평균 센티먼트 등으로 개선 예정.
+- **종목 간 뉴스 상관관계 미반영**: 하이닉스 피처 계산 시 삼성전자 뉴스 미반영 (동일 섹터 영향 무시). Phase 7 섹터/상대강도에서 섹터 평균 센티먼트 등으로 개선 예정.
 
 ## Project Structure
 
@@ -154,41 +172,59 @@ AI_Finance/
 │   ├── api/                      # FastAPI routes
 │   │   ├── main.py               # App entrypoint
 │   │   ├── routes/               # Endpoint routers
+│   │   │   ├── stock.py          # 주가 API
+│   │   │   ├── fundamental.py    # 펀더멘털 API
+│   │   │   ├── macro.py          # 거시경제 API
+│   │   │   ├── news.py           # 뉴스 센티먼트 API
+│   │   │   ├── disclosure.py     # DART 공시 + KRX 수급 API
+│   │   │   ├── ml.py             # ML 파이프라인 API
+│   │   │   └── admin.py          # 관리자 API
 │   │   └── schemas.py            # Pydantic schemas
 │   ├── data_collector/           # Module 0: 데이터 수집
 │   │   ├── pipeline.py           # 주가 수집 파이프라인
-│   │   ├── macro_fetcher.py      # 거시경제 지표 수집
+│   │   ├── macro_fetcher.py      # 거시경제 지표 수집 (yfinance+FRED)
 │   │   ├── news_fetcher.py       # Naver 뉴스 수집
 │   │   ├── sentiment_analyzer.py # KR-FinBert-SC 센티먼트
 │   │   ├── kis_fetcher.py        # KIS API 펀더멘털
 │   │   ├── dart_fetcher.py       # DART 재무제표
+│   │   ├── disclosure_fetcher.py # DART 공시 센티먼트 분석
+│   │   ├── krx_fetcher.py        # KRX 수급 데이터 (KIS API)
 │   │   └── scheduler.py          # APScheduler 잡 관리
 │   ├── indicators/               # 기술적 지표 계산
 │   ├── ml/                       # Module 2~3: 피처/ML
-│   │   ├── feature_engineer.py   # 피처 엔지니어링
+│   │   ├── feature_engineer.py   # 피처 엔지니어링 (Phase 1~5)
 │   │   ├── trainer.py            # 모델 학습
 │   │   ├── predictor.py          # 예측 실행
 │   │   ├── tuner.py              # Optuna 하이퍼파라미터
+│   │   ├── ml_config.yaml        # ML 알고리즘 설정
 │   │   └── signal_generator.py   # BUY/SELL/HOLD 시그널
 │   ├── models/                   # SQLAlchemy 모델
 │   ├── repositories/             # DB CRUD
 │   ├── services/                 # 비즈니스 로직
+│   ├── core/                     # 유틸리티 (로깅, 예외, 데코레이터)
 │   ├── config.py                 # 설정 (환경변수)
 │   └── run.py                    # Uvicorn 실행
 ├── dashboard/                    # Module 7: 사용자 대시보드
 │   ├── app.py
 │   └── pages/
+│       ├── market_overview.py    # 시장 개요
 │       ├── stock_analysis.py     # 종목 분석
 │       ├── news_sentiment.py     # 뉴스 센티먼트 분석
-│       ├── market_overview.py    # 시장 개요
 │       └── sector_view.py        # 섹터 분석
-├── admin/                        # Module 8: 관리자 대시보드
+├── admin/                        # Module 8: 관리자 대시보드 (12페이지)
 │   ├── app.py
 │   └── pages/
-│       ├── news_manager.py       # 뉴스 수집/조회/현황
-│       ├── fundamental_manager.py # 재무 데이터 관리
+│       ├── server_status.py      # 서버 상태
+│       ├── db_status.py          # DB 상태/통계
+│       ├── log_viewer.py         # 로그 뷰어
+│       ├── config_viewer.py      # 설정 조회
 │       ├── scheduler_manager.py  # 스케줄러 관리
-│       └── ml_*.py               # ML 학습/모델/예측
+│       ├── fundamental_manager.py # 재무 데이터 관리
+│       ├── news_manager.py       # 뉴스 수집/조회/현황
+│       ├── disclosure_manager.py # DART 공시 + KRX 수급 관리
+│       ├── ml_train_manager.py   # ML 학습 관리
+│       ├── ml_models.py          # 학습된 모델 조회
+│       └── ml_predictions.py     # 예측 테스트
 ├── docs/                         # 프로젝트 문서
 ├── docker-compose.yml
 ├── Dockerfile
@@ -234,6 +270,9 @@ DART_API_KEY=
 NAVER_CLIENT_ID=
 NAVER_CLIENT_SECRET=
 
+# FRED (Phase 3 거시경제)
+FRED_API_KEY=
+
 # Slack (선택)
 SLACK_ENABLED=false
 SLACK_TOKEN=
@@ -269,17 +308,21 @@ python app/run.py
 ## API Endpoints
 
 ```
-POST /stocks/collect           # 주가 데이터 수집
-POST /macro/collect            # 거시경제 지표 수집
-POST /news/collect             # 뉴스 센티먼트 수집
-GET  /news/articles            # 뉴스 기사 조회
-GET  /news/sentiment/{code}    # 종목 센티먼트 요약
-POST /ml/features/compute      # 피처 계산
-POST /ml/train                 # 모델 학습
-POST /ml/predict/{code}        # 종목 예측
-GET  /ml/models                # 모델 목록
-GET  /ml/predictions           # 예측 결과
-GET  /admin/health             # 헬스체크
+POST /stocks/collect                  # 주가 데이터 수집
+POST /macro/collect                   # 거시경제 지표 수집
+POST /news/collect                    # 뉴스 센티먼트 수집
+GET  /news/articles                   # 뉴스 기사 조회
+GET  /news/sentiment/{code}           # 종목 센티먼트 요약
+POST /disclosure/collect              # DART 공시 수집
+GET  /disclosure/list                 # 종목별 공시 목록
+POST /disclosure/supply/collect       # KRX 수급 데이터 수집
+GET  /disclosure/supply/{market}/{code} # 종목별 수급 시계열
+POST /ml/features/compute             # 피처 계산
+POST /ml/train                        # 모델 학습
+POST /ml/predict/{code}               # 종목 예측
+GET  /ml/models                       # 모델 목록
+GET  /ml/predictions                  # 예측 결과
+GET  /admin/health                    # 헬스체크
 ```
 
 ## Roadmap
@@ -289,8 +332,9 @@ GET  /admin/health             # 헬스체크
 - [x] Phase 3 — 거시경제 지표 + ML Phase3 (41피처)
 - [x] Phase 4 — 뉴스 센티먼트 수집/분석 (Naver API + KR-FinBert-SC, 49피처)
 - [x] Phase 4.5 — 뉴스 센티먼트 대시보드 (사용자: 센티먼트 분석, 관리자: 수집/조회/현황)
-- [ ] Phase 5 — DART 공시 + 수급 데이터
-- [ ] Phase 6 — 대안 데이터 + 섹터/상대강도
-- [ ] Phase 7 — 백테스팅 + 포트폴리오 최적화
-- [ ] Phase 8 — 딥러닝 (LSTM, Transformer, 강화학습)
-- [ ] Phase 9 — 매매 시스템 (모의투자 + 실매매) + 대시보드 고도화
+- [x] Phase 5 — DART 공시 + KRX 수급 데이터 (KIS API, 59피처) + 어드민 대시보드
+- [ ] Phase 6 — 리포트 생성 + 구독 서비스 (LLM 시장 분석 + 이메일/카카오톡/Slack 발송)
+- [ ] Phase 7 — 대안 데이터 + 섹터/상대강도
+- [ ] Phase 8 — 백테스팅 + 포트폴리오 최적화
+- [ ] Phase 9 — 딥러닝 (LSTM, Transformer, 강화학습)
+- [ ] Phase 10 — 매매 시스템 (모의투자 + 실매매) + 대시보드 고도화

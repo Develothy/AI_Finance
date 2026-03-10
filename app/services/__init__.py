@@ -5,6 +5,8 @@ from .fundamental_service import FundamentalService
 from .macro_service import MacroService
 from .news_service import NewsService
 from .disclosure_service import DisclosureService
+from .admin_service import AdminService
+from .scheduler_service import SchedulerService
 
 stock_service = StockService()
 indicator_service = IndicatorService()
@@ -13,6 +15,8 @@ fundamental_service = FundamentalService()
 macro_service = MacroService()
 news_service = NewsService()
 disclosure_service = DisclosureService()
+admin_service = AdminService()
+scheduler_service = SchedulerService()
 
 __all__ = [
     "StockService", "stock_service",
@@ -22,4 +26,6 @@ __all__ = [
     "MacroService", "macro_service",
     "NewsService", "news_service",
     "DisclosureService", "disclosure_service",
+    "AdminService", "admin_service",
+    "SchedulerService", "scheduler_service",
 ]

@@ -433,6 +433,11 @@ class FeatureEngineer:
             if not features:
                 return 0
 
+            # Phase 6 미계산 레코드만 처리 (sector_return_1d가 NULL)
+            features = [f for f in features if f.sector_return_1d is None]
+            if not features:
+                return 0
+
             # Phase 6 계산에 필요한 최소 컬럼만 로드
             df = pd.DataFrame([{
                 "date": f.date,

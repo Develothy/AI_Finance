@@ -276,6 +276,7 @@ class FeatureEngineer:
     def compute_all(
         self,
         market: str,
+        codes: list[str] = None,
         start_date: str = None,
         end_date: str = None,
         target_days: list[int] = None,
@@ -289,20 +290,22 @@ class FeatureEngineer:
         (Phase 6은 동일 섹터 피어의 Phase 1~5 데이터가 필요하므로 분리)
 
         Args:
+            codes: 대상 종목 코드 리스트 (None이면 DB에서 전체 조회)
             incremental: True면 종목별 마지막 계산일 이후 신규분만 계산
 
         Returns:
             {"total": N, "success": N, "failed": N, "skipped": N}
         """
-        from models import StockInfo
+        if codes is None:
+            from models import StockInfo
 
-        with database.session() as session:
-            codes = [
-                r[0] for r in
-                session.query(StockInfo.code)
-                .filter(StockInfo.market == market)
-                .all()
-            ]
+            with database.session() as session:
+                codes = [
+                    r[0] for r in
+                    session.query(StockInfo.code)
+                    .filter(StockInfo.market == market)
+                    .all()
+                ]
 
         if not codes:
             logger.warning(f"종목 없음: {market}", "compute_all")

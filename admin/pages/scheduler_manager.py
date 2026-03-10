@@ -24,15 +24,25 @@ def render():
         st.error(f"스케줄 목록 조회 실패: {e}")
         jobs = []
 
-    # ML 학습 잡은 ML 학습 관리 페이지에서 처리 — 여기선 data_collect + fundamental_collect만
-    data_jobs = [j for j in jobs if j.get("job_type", "data_collect") in ("data_collect", "fundamental_collect")]
+    # ML 학습 잡은 ML 학습 관리 페이지에서 처리
+    data_jobs = [j for j in jobs if j.get("job_type", "data_collect") != "ml_train"]
 
     if data_jobs:
         for job in data_jobs:
             col1, col2, col3, col4, col5, col6 = st.columns([2, 1.5, 1.5, 1.5, 1, 1])
 
             jtype = job.get("job_type", "data_collect")
-            type_badge = "💰 재무" if jtype == "fundamental_collect" else "📊 가격"
+            type_badges = {
+                "data_collect": "📊 가격",
+                "fundamental_collect": "💰 재무",
+                "macro_collect": "🌍 거시",
+                "news_collect": "📰 뉴스",
+                "disclosure_collect": "📋 공시",
+                "supply_collect": "📈 수급",
+                "market_investor_collect": "🏦 시장수급",
+                "full_collect": "🔄 일괄수집",
+            }
+            type_badge = type_badges.get(jtype, f"⚙️ {jtype}")
             col1.markdown(
                 f"<span style='font-size:0.75rem;background:#333;padding:1px 6px;border-radius:4px;'>"
                 f"{type_badge}</span> **{job['job_name']}**"
@@ -78,17 +88,37 @@ def render():
         "`0 9 * * 1` (매주 월요일 9시)"
     )
 
-    JOB_TYPES = {"data_collect": "📊 가격 수집", "fundamental_collect": "💰 재무 수집"}
+    # 파이프라인 플로우 순서
+    PIPELINE_STEPS = [
+        ("data_collect", "📊 가격"),
+        ("fundamental_collect", "💰 재무"),
+        ("market_investor_collect", "🏦 시장수급"),
+        ("macro_collect", "🌍 거시지표"),
+        ("news_collect", "📰 뉴스"),
+        ("disclosure_collect", "📋 공시"),
+        ("supply_collect", "📈 수급"),
+    ]
+    ALL_STEP_KEYS = [k for k, _ in PIPELINE_STEPS]
 
     with st.form("add_schedule"):
-        fc0, fc1, fc2, fc3 = st.columns([1.5, 1.5, 1.5, 1.5])
-        job_type = fc0.selectbox("수집 타입", list(JOB_TYPES.keys()), format_func=lambda x: JOB_TYPES[x])
+        st.markdown("**수집 단계 선택** (파이프라인 순서)")
+        select_all = st.checkbox("🔄 전체 선택 (일괄 수집)", value=True, key="select_all")
+
+        cols = st.columns(len(PIPELINE_STEPS))
+        selected_steps = []
+        for i, (key, label) in enumerate(PIPELINE_STEPS):
+            checked = cols[i].checkbox(label, value=select_all, key=f"step_{key}", disabled=select_all)
+            if select_all or checked:
+                selected_steps.append(key)
+
+        st.markdown("---")
+        fc1, fc2, fc3 = st.columns([2, 1.5, 1.5])
         job_name = fc1.text_input("Job 이름", placeholder="kr_daily_kospi")
         market = fc2.selectbox("마켓", MARKETS)
         sector = fc3.text_input("섹터 (선택)", placeholder="반도체")
 
         fc4, fc5, fc6 = st.columns([2, 1, 2])
-        cron_expr = fc4.text_input("크론식 (분 시 일 월 요일)", value="0 18 * * *", help=CRON_EXAMPLES)
+        cron_expr = fc4.text_input("크론식 (분 시 일 월 요일)", value="0 19 * * *", help=CRON_EXAMPLES)
         days_back = fc5.number_input("수집 기간 (일)", min_value=1, max_value=365, value=7)
         description = fc6.text_input("설명", placeholder="KOSPI 일일 수집")
 
@@ -98,19 +128,41 @@ def render():
                 st.error("Job 이름은 필수입니다.")
             elif not cron_expr.strip():
                 st.error("크론식은 필수입니다.")
+            elif not selected_steps:
+                st.error("최소 1개 수집 단계를 선택하세요.")
             else:
                 try:
-                    data = {
-                        "job_name": job_name,
-                        "job_type": job_type,
-                        "market": market,
-                        "sector": sector or None,
-                        "cron_expr": cron_expr.strip(),
-                        "days_back": days_back,
-                        "description": description or None,
-                    }
-                    result = admin_client.create_schedule_job(data)
-                    st.success(f"스케줄 추가 완료: {result.get('job_name', '')}")
+                    # 전체 선택 → full_collect 단일 잡
+                    if set(selected_steps) == set(ALL_STEP_KEYS):
+                        data = {
+                            "job_name": job_name,
+                            "job_type": "full_collect",
+                            "market": market,
+                            "sector": sector or None,
+                            "cron_expr": cron_expr.strip(),
+                            "days_back": days_back,
+                            "description": description or f"일괄 수집",
+                        }
+                        result = admin_client.create_schedule_job(data)
+                        st.success(f"스케줄 추가 완료: {result.get('job_name', '')} (🔄 일괄)")
+                    else:
+                        # 개별 선택 → 선택된 단계별 잡 생성
+                        created = []
+                        for step_key in selected_steps:
+                            step_label = dict(PIPELINE_STEPS)[step_key]
+                            suffix = step_key.replace("_collect", "").replace("data", "price")
+                            data = {
+                                "job_name": f"{job_name}_{suffix}" if len(selected_steps) > 1 else job_name,
+                                "job_type": step_key,
+                                "market": market,
+                                "sector": sector or None,
+                                "cron_expr": cron_expr.strip(),
+                                "days_back": days_back,
+                                "description": description or step_label,
+                            }
+                            result = admin_client.create_schedule_job(data)
+                            created.append(f"{step_label}")
+                        st.success(f"스케줄 {len(created)}개 추가 완료: {', '.join(created)}")
                     st.cache_data.clear()
                 except Exception as e:
                     st.error(f"추가 실패: {e}")

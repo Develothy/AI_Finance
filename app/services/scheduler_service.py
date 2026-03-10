@@ -254,7 +254,7 @@ class SchedulerService:
                 result = DisclosureService().collect_supply_demand(market=market, days=days_back or 60)
 
             elif job_type == "full_collect":
-                result = self._run_full_collect(market, days_back)
+                result = self._run_full_collect(market, days_back, sector)
 
             else:
                 from services import StockService
@@ -329,8 +329,8 @@ class SchedulerService:
                         "message": str(e)[:500],
                     })
 
-    def _run_full_collect(self, market: str, days_back: int) -> dict:
-        """전체 데이터 일괄 수집 + 피처 계산"""
+    def _run_full_collect(self, market: str, days_back: int, sector: str = None) -> dict:
+        """전체 데이터 일괄 수집 + 피처 계산 (sector 지정 시 해당 섹터만)"""
         from services import StockService, FundamentalService, MacroService
         from services import NewsService, DisclosureService
         from data_collector import DataPipeline
@@ -338,34 +338,53 @@ class SchedulerService:
         steps = []
         total_saved = 0
         total_failed = 0
+        target_codes = []
 
-        # 1) 가격
+        # 1) 가격 — sector 필터 적용, target_codes 확정
         try:
             pipeline = DataPipeline()
             end_date = datetime.now().strftime("%Y-%m-%d")
             start_date = (datetime.now() - timedelta(days=days_back or 7)).strftime("%Y-%m-%d")
-            fetch_result = pipeline.fetch(start_date=start_date, end_date=end_date, market=market)
+            fetch_result = pipeline.fetch(start_date=start_date, end_date=end_date, market=market, sector=sector)
             if fetch_result.data or fetch_result.stock_info:
                 svc = StockService(pipeline=pipeline)
                 if fetch_result.data:
                     total_saved += svc.save_to_db(fetch_result.data, fetch_result.market)
                 if fetch_result.stock_info:
                     svc._save_stock_info(fetch_result.stock_info)
+                    target_codes = [s["code"] for s in fetch_result.stock_info]
+            if not target_codes and fetch_result.data:
+                target_codes = list({d["code"] for d in fetch_result.data})
             steps.append(f"가격: {fetch_result.success_count}종목")
         except Exception as e:
             steps.append(f"가격: 실패({e})")
             total_failed += 1
 
-        # 2) 재무
+        if not target_codes:
+            return {"saved": 0, "failed": 1, "success": 0, "message": "대상 종목 없음"}
+
+        # target_codes로 (code, name) 매핑 (뉴스용)
+        from models import StockInfo
+        with database.session() as session:
+            code_names = [
+                (r.code, r.name) for r in
+                session.query(StockInfo.code, StockInfo.name)
+                .filter(StockInfo.market == market, StockInfo.code.in_(target_codes))
+                .all()
+            ]
+
+        logger.info(f"일괄수집 대상: {len(target_codes)}종목 (sector={sector})", "_run_full_collect")
+
+        # 2) 재무 — target_codes만
         try:
-            r = FundamentalService().collect_fundamentals(market=market)
+            r = FundamentalService().collect_fundamentals(market=market, codes=target_codes)
             total_saved += r.get("saved", 0)
             steps.append(f"재무: {r.get('saved', 0)}건")
         except Exception as e:
             steps.append(f"재무: 실패({e})")
             total_failed += 1
 
-        # 3) 거시지표
+        # 3) 거시지표 (종목 무관)
         try:
             r = MacroService().collect(days_back=days_back or 30)
             total_saved += r.get("saved", 0)
@@ -374,38 +393,38 @@ class SchedulerService:
             steps.append(f"거시: 실패({e})")
             total_failed += 1
 
-        # 4) 뉴스
+        # 4) 뉴스 — target_codes만
         try:
             news_market = market if market in ("KR", "US") else "KR"
-            r = NewsService().collect(market=news_market)
+            r = NewsService().collect(market=news_market, codes=code_names)
             total_saved += r.get("saved", 0)
             steps.append(f"뉴스: {r.get('saved', 0)}건")
         except Exception as e:
             steps.append(f"뉴스: 실패({e})")
             total_failed += 1
 
-        # 5) 공시
+        # 5) 공시 — target_codes만
         try:
-            r = DisclosureService().collect_disclosures(market=market, days=days_back or 60)
+            r = DisclosureService().collect_disclosures(market=market, codes=target_codes, days=days_back or 60)
             total_saved += r.get("saved", 0)
             steps.append(f"공시: {r.get('saved', 0)}건")
         except Exception as e:
             steps.append(f"공시: 실패({e})")
             total_failed += 1
 
-        # 6) 수급
+        # 6) 수급 — target_codes만
         try:
-            r = DisclosureService().collect_supply_demand(market=market, days=days_back or 60)
+            r = DisclosureService().collect_supply_demand(market=market, codes=target_codes, days=days_back or 60)
             total_saved += r.get("saved", 0)
             steps.append(f"수급: {r.get('saved', 0)}건")
         except Exception as e:
             steps.append(f"수급: 실패({e})")
             total_failed += 1
 
-        # 7) 피처 계산 (Phase 1~6, 2-pass)
+        # 7) 피처 계산 — target_codes만
         try:
             from ml.feature_engineer import FeatureEngineer
-            feat_result = FeatureEngineer().compute_all(market=market)
+            feat_result = FeatureEngineer().compute_all(market=market, codes=target_codes)
             feat_saved = feat_result.get("success", 0)
             total_saved += feat_saved
             steps.append(f"피처: {feat_saved}/{feat_result.get('total', 0)}종목")

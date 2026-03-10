@@ -769,14 +769,15 @@ class DataScheduler:
         job_name = job_model.job_name
         cron_expr = job_model.cron_expr
         market = job_model.market or "KOSPI"
+        sector = job_model.sector or None
         days_back = job_model.days_back or 7
 
         def full_collect_job_func():
             from models import ScheduleJob as SJ, ScheduleLog
-            from api.routes.admin import _run_full_collect
+            from services import scheduler_service
 
             logger.info(f"일괄 수집 스케줄 시작", "full_collect_cron_job",
-                        {"job_id": job_name, "market": market})
+                        {"job_id": job_name, "market": market, "sector": sector})
 
             log_id = None
             with database.session() as session:
@@ -793,7 +794,7 @@ class DataScheduler:
                     log_id = log.id
 
             try:
-                result = _run_full_collect(market, days_back)
+                result = scheduler_service._run_full_collect(market, days_back, sector)
 
                 if log_id:
                     with database.session() as session:

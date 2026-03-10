@@ -134,10 +134,26 @@ class StockRepository:
         ).first()
 
     def get_by_sector(self, sector: str, market: Optional[str] = None) -> list[StockInfo]:
-        """섹터별 종목 조회"""
+        """섹터별 종목 조회 (부분 매칭)"""
         query = self.session.query(StockInfo).filter(
             StockInfo.sector.contains(sector)
         )
         if market:
             query = query.filter(StockInfo.market == market)
         return query.all()
+
+    def get_sector_for_code(self, code: str, market: str) -> Optional[str]:
+        """종목코드의 섹터 조회"""
+        result = self.session.query(StockInfo.sector).filter(
+            StockInfo.code == code,
+            StockInfo.market == market,
+        ).first()
+        return result[0] if result else None
+
+    def get_codes_in_sector(self, sector: str, market: str) -> list[str]:
+        """동일 섹터 종목코드 목록 (정확 매칭)"""
+        rows = self.session.query(StockInfo.code).filter(
+            StockInfo.sector == sector,
+            StockInfo.market == market,
+        ).all()
+        return [r[0] for r in rows]

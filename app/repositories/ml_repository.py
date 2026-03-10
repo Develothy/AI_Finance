@@ -98,6 +98,33 @@ class MLRepository:
             query = query.filter(FeatureStore.date <= end_date)
         return query.order_by(FeatureStore.date).all()
 
+    def get_sector_features_bulk(
+        self,
+        market: str,
+        codes: list[str],
+        start_date,
+        end_date,
+    ) -> list[tuple]:
+        """섹터 내 종목들의 수익률 + 뉴스 센티먼트 벌크 조회 (Phase 6)"""
+        return (
+            self.session.query(
+                FeatureStore.code,
+                FeatureStore.date,
+                FeatureStore.return_1d,
+                FeatureStore.return_5d,
+                FeatureStore.return_20d,
+                FeatureStore.news_sentiment,
+            )
+            .filter(
+                FeatureStore.market == market,
+                FeatureStore.code.in_(codes),
+                FeatureStore.date >= start_date,
+                FeatureStore.date <= end_date,
+            )
+            .order_by(FeatureStore.date)
+            .all()
+        )
+
     def get_latest_features(self, market: str, code: str) -> Optional[FeatureStore]:
         """최신 피처 조회"""
         return self.session.query(FeatureStore).filter(

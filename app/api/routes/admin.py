@@ -127,6 +127,8 @@ def db_status():
             feat_earliest = feat_latest = None
             feat_markets = []
             feat_code_count = 0
+            feat_phase6_count = 0
+            feat_phase6_code_count = 0
             if feat_count > 0:
                 feat_earliest_dt = session.query(func.min(FeatureStore.date)).scalar()
                 feat_latest_dt = session.query(func.max(FeatureStore.date)).scalar()
@@ -134,6 +136,15 @@ def db_status():
                 feat_latest = feat_latest_dt.strftime("%Y-%m-%d") if feat_latest_dt else None
                 feat_markets = [r[0] for r in session.query(FeatureStore.market).distinct().all()]
                 feat_code_count = session.query(func.count(func.distinct(FeatureStore.code))).scalar() or 0
+                # Phase 6 커버리지 (섹터/상대강도 피처 계산 완료 여부)
+                feat_phase6_count = session.query(func.count(FeatureStore.id)).filter(
+                    FeatureStore.sector_return_1d.isnot(None),
+                ).scalar() or 0
+                feat_phase6_code_count = session.query(
+                    func.count(func.distinct(FeatureStore.code))
+                ).filter(
+                    FeatureStore.sector_return_1d.isnot(None),
+                ).scalar() or 0
 
             # news_sentiment 통계
             ns_count = session.query(func.count(NewsSentiment.id)).scalar() or 0
@@ -188,6 +199,8 @@ def db_status():
                         latest_date=feat_latest,
                         markets=feat_markets,
                         code_count=feat_code_count,
+                        phase6_count=feat_phase6_count,
+                        phase6_code_count=feat_phase6_code_count,
                     ),
                     "news_sentiment": TableStats(
                         row_count=ns_count,
@@ -540,7 +553,7 @@ def _run_job_by_type(log_id: int, job_type: str, market: str, sector: str, days_
 
 
 def _run_full_collect(market: str, days_back: int) -> dict:
-    """전체 데이터 일괄 수집 (가격→재무→거시→뉴스→공시→수급)"""
+    """전체 데이터 일괄 수집 + 피처 계산 (가격→재무→거시→뉴스→공시→수급→피처)"""
     from datetime import timedelta
     from services import StockService, FundamentalService, MacroService
     from services import NewsService, DisclosureService
@@ -613,12 +626,24 @@ def _run_full_collect(market: str, days_back: int) -> dict:
         steps.append(f"수급: 실패({e})")
         total_failed += 1
 
+    # 7) 피처 계산 (Phase 1~6, 2-pass)
+    try:
+        from ml.feature_engineer import FeatureEngineer
+        feat_result = FeatureEngineer().compute_all(market=market)
+        feat_saved = feat_result.get("success", 0)
+        total_saved += feat_saved
+        steps.append(f"피처: {feat_saved}/{feat_result.get('total', 0)}종목")
+    except Exception as e:
+        steps.append(f"피처: 실패({e})")
+        total_failed += 1
+
+    total_steps = 7
     msg = " | ".join(steps)
     return {
         "saved": total_saved,
         "failed": total_failed,
-        "success": 6 - total_failed,
-        "message": f"일괄 수집 완료: {msg}",
+        "success": total_steps - total_failed,
+        "message": f"일괄 수집+피처 완료: {msg}",
     }
 
 

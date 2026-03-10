@@ -166,6 +166,8 @@ class TableStats(BaseModel):
     sector_count: Optional[int] = None
     period_count: Optional[int] = None
     active_count: Optional[int] = None
+    phase6_count: Optional[int] = None
+    phase6_code_count: Optional[int] = None
 
 
 class DBResponse(BaseModel):

@@ -14,8 +14,9 @@ import pandas as pd
 from core import get_logger
 from db import database
 from indicators import calc_sma, calc_ema, calc_rsi, calc_macd, calc_bollinger_bands, calc_obv
-from models import StockPrice, StockFundamental, FinancialStatement, MacroIndicator
+from models import StockPrice, StockFundamental, FinancialStatement, MacroIndicator, StockInfo
 from repositories import MLRepository
+from repositories.stock_repository import StockRepository
 from repositories.news_repository import NewsRepository
 from repositories.disclosure_repository import DisclosureRepository
 
@@ -62,6 +63,26 @@ PHASE5_FEATURE_COLUMNS = PHASE4_FEATURE_COLUMNS + [
     "program_buy_volume", "program_sell_volume", "program_net_volume",
 ]
 
+# Phase 6 피처 컬럼 (Phase 5 + 섹터/상대강도 + 뉴스 정제)
+PHASE6_FEATURE_COLUMNS = PHASE5_FEATURE_COLUMNS + [
+    "sector_return_1d", "sector_return_5d",
+    "relative_strength_1d", "relative_strength_5d", "relative_strength_20d",
+    "sector_momentum_rank", "sector_breadth",
+    "news_relevance_ratio", "news_sentiment_filtered", "sector_news_sentiment",
+]
+
+# Phase 6A 섹터 피처 내부 상수
+_SECTOR_FEATURE_COLUMNS = [
+    "sector_return_1d", "sector_return_5d",
+    "relative_strength_1d", "relative_strength_5d", "relative_strength_20d",
+    "sector_momentum_rank", "sector_breadth",
+]
+
+# Phase 6B 뉴스 정제 피처 내부 상수
+_NEWS_REFINED_FEATURE_COLUMNS = [
+    "news_relevance_ratio", "news_sentiment_filtered", "sector_news_sentiment",
+]
+
 # indicator_name → feature_store 컬럼명 매핑
 _MACRO_COLUMN_MAP = {
     "KRW_USD": "krw_usd",
@@ -106,6 +127,7 @@ class FeatureEngineer:
         end_date: str = None,
         target_days: list[int] = None,
         incremental: bool = True,
+        include_phase6: bool = True,
     ) -> int:
         """
         단일 종목의 피처를 계산하여 feature_store에 저장
@@ -202,6 +224,18 @@ class FeatureEngineer:
                 features_df, market, code, session,
             )
 
+            # 3.10 섹터/상대강도 피처 병합 (Phase 6A)
+            # 3.11 뉴스 정제 피처 병합 (Phase 6B)
+            # compute_all()에서는 include_phase6=False로 Pass 1 수행 후
+            # Pass 2에서 _compute_phase6_only()로 별도 처리
+            if include_phase6:
+                features_df = self._merge_sector_features(
+                    features_df, market, code, session,
+                )
+                features_df = self._merge_news_refined_features(
+                    features_df, market, code, session,
+                )
+
             # 증분: 신규분만 필터링
             if last_date:
                 features_df = features_df[features_df["date"] > last_date]
@@ -248,7 +282,11 @@ class FeatureEngineer:
         incremental: bool = True,
     ) -> dict:
         """
-        마켓 전체 종목의 피처를 계산
+        마켓 전체 종목의 피처를 계산 (2-pass)
+
+        Pass 1: Phase 1~5 피처 계산 → feature_store 저장
+        Pass 2: Phase 6 섹터/뉴스정제 피처 계산 → feature_store 업데이트
+        (Phase 6은 동일 섹터 피어의 Phase 1~5 데이터가 필요하므로 분리)
 
         Args:
             incremental: True면 종목별 마지막 계산일 이후 신규분만 계산
@@ -274,21 +312,56 @@ class FeatureEngineer:
         success = 0
         failed = 0
         skipped = 0
+        phase1_updated_codes = set()  # Pass 1에서 신규 데이터 처리된 종목
 
+        # Pass 1: Phase 1~5 피처 계산 (Phase 6 제외)
+        logger.info(f"Pass 1/2: Phase 1~5 피처 계산 ({total}종목)", "compute_all")
         for code in codes:
             try:
                 count = self.compute_features(
                     market, code, start_date, end_date,
                     target_days=target_days,
                     incremental=incremental,
+                    include_phase6=False,
                 )
                 if count > 0:
                     success += 1
+                    phase1_updated_codes.add(code)
                 else:
                     skipped += 1
             except Exception as e:
                 logger.warning(f"피처 계산 실패: {market}:{code} - {e}", "compute_all")
                 failed += 1
+
+        # Pass 2: Phase 6 섹터/뉴스정제 피처 계산
+        # 증분 모드: Pass 1에서 신규 데이터가 있던 종목 + Phase 6 미계산 종목만 처리
+        phase6_targets = self._get_phase6_targets(
+            market, codes, phase1_updated_codes, incremental,
+        )
+        logger.info(
+            f"Pass 2/2: Phase 6 피처 계산 ({len(phase6_targets)}/{total}종목)",
+            "compute_all",
+        )
+        phase6_success = 0
+        phase6_failed = 0
+        for code in phase6_targets:
+            try:
+                count = self._compute_phase6_only(
+                    market, code, start_date, end_date,
+                )
+                if count > 0:
+                    phase6_success += 1
+            except Exception as e:
+                logger.warning(
+                    f"Phase 6 피처 계산 실패: {market}:{code} - {e}",
+                    "compute_all",
+                )
+                phase6_failed += 1
+
+        logger.info(
+            f"Phase 6 업데이트: {phase6_success}/{len(phase6_targets)} (실패: {phase6_failed})",
+            "compute_all",
+        )
 
         mode = "증분" if incremental else "전체"
         logger.info(
@@ -296,6 +369,111 @@ class FeatureEngineer:
             "compute_all",
         )
         return {"total": total, "success": success, "failed": failed, "skipped": skipped}
+
+    def _get_phase6_targets(
+        self,
+        market: str,
+        all_codes: list[str],
+        updated_codes: set[str],
+        incremental: bool,
+    ) -> list[str]:
+        """
+        Pass 2에서 처리할 종목 목록 결정
+
+        - 전체 모드: 전종목
+        - 증분 모드: Pass 1에서 갱신된 종목 + Phase 6 미계산 종목
+        """
+        if not incremental:
+            return all_codes
+
+        # Pass 1에서 갱신된 종목은 무조건 포함
+        targets = set(updated_codes)
+
+        # Phase 6 미계산 종목 추가 (sector_return_1d가 NULL인 종목)
+        with database.session() as session:
+            from models import FeatureStore
+
+            # Phase 6 데이터가 하나도 없는 종목코드 조회
+            codes_with_phase6 = set(
+                r[0] for r in
+                session.query(FeatureStore.code)
+                .filter(
+                    FeatureStore.market == market,
+                    FeatureStore.code.in_(all_codes),
+                    FeatureStore.sector_return_1d.isnot(None),
+                )
+                .distinct()
+                .all()
+            )
+
+            for code in all_codes:
+                if code not in codes_with_phase6:
+                    targets.add(code)
+
+        return [c for c in all_codes if c in targets]  # 순서 유지
+
+    def _compute_phase6_only(
+        self,
+        market: str,
+        code: str,
+        start_date: str = None,
+        end_date: str = None,
+    ) -> int:
+        """
+        Phase 6 피처만 계산하여 feature_store 업데이트
+
+        compute_all()의 Pass 2에서 호출.
+        feature_store에 이미 저장된 Phase 1~5 데이터를 읽어
+        섹터/상대강도 + 뉴스 정제 피처를 계산한다.
+        """
+        with database.session() as session:
+            ml_repo = MLRepository(session)
+
+            features = ml_repo.get_features(market, code, start_date, end_date)
+            if not features:
+                return 0
+
+            # Phase 6 계산에 필요한 최소 컬럼만 로드
+            df = pd.DataFrame([{
+                "date": f.date,
+                "return_1d": float(f.return_1d) if f.return_1d is not None else None,
+                "return_5d": float(f.return_5d) if f.return_5d is not None else None,
+                "return_20d": float(f.return_20d) if f.return_20d is not None else None,
+                "news_sentiment": float(f.news_sentiment) if f.news_sentiment is not None else None,
+            } for f in features])
+
+            if df.empty:
+                return 0
+
+            # Phase 6A: 섹터/상대강도
+            df = self._merge_sector_features(df, market, code, session)
+
+            # Phase 6B: 뉴스 정제
+            df = self._merge_news_refined_features(df, market, code, session)
+
+            # Phase 6 컬럼만 추출하여 upsert
+            phase6_cols = _SECTOR_FEATURE_COLUMNS + _NEWS_REFINED_FEATURE_COLUMNS
+            records = []
+            for _, row in df.iterrows():
+                record = {"market": market, "code": code, "date": row["date"]}
+                for col in phase6_cols:
+                    val = row.get(col)
+                    if pd.isna(val):
+                        record[col] = None
+                    elif isinstance(val, (np.integer,)):
+                        record[col] = int(val)
+                    elif isinstance(val, (np.floating,)):
+                        record[col] = float(val)
+                    else:
+                        record[col] = val
+                records.append(record)
+
+            saved = ml_repo.upsert_features(records)
+            logger.info(
+                f"Phase 6 피처 업데이트: {market}:{code} ({saved}행)",
+                "_compute_phase6_only",
+            )
+            return saved
 
     def _merge_fundamental_features(
         self,
@@ -652,6 +830,216 @@ class FeatureEngineer:
 
         # 컬럼 보장
         for col in _SUPPLY_COLS:
+            if col not in df.columns:
+                df[col] = None
+
+        return df
+
+    # ============================================================
+    # Phase 6A: 섹터/상대강도 피처
+    # ============================================================
+
+    def _merge_sector_features(
+        self,
+        df: pd.DataFrame,
+        market: str,
+        code: str,
+        session,
+    ) -> pd.DataFrame:
+        """
+        섹터/상대강도 피처를 기존 피처 DataFrame에 병합 (Phase 6A)
+
+        feature_store에서 동일 섹터 종목들의 수익률을 가져와
+        섹터 평균, 상대강도, 모멘텀 순위, 시장폭을 계산한다.
+        """
+        if df.empty:
+            for col in _SECTOR_FEATURE_COLUMNS:
+                df[col] = None
+            return df
+
+        stock_repo = StockRepository(session)
+        ml_repo = MLRepository(session)
+
+        # 1) 섹터 조회
+        sector = stock_repo.get_sector_for_code(code, market)
+        if not sector:
+            for col in _SECTOR_FEATURE_COLUMNS:
+                df[col] = None
+            return df
+
+        # 2) 동일 섹터 종목코드
+        sector_codes = stock_repo.get_codes_in_sector(sector, market)
+        if len(sector_codes) < 2:
+            for col in _SECTOR_FEATURE_COLUMNS:
+                df[col] = None
+            return df
+
+        # 3) feature_store에서 벌크 조회
+        min_date = df["date"].min()
+        max_date = df["date"].max()
+
+        sector_rows = ml_repo.get_sector_features_bulk(
+            market, sector_codes, min_date, max_date,
+        )
+
+        if not sector_rows:
+            for col in _SECTOR_FEATURE_COLUMNS:
+                df[col] = None
+            return df
+
+        # 4) DataFrame 변환
+        sector_df = pd.DataFrame([{
+            "code": r.code,
+            "date": r.date,
+            "return_1d": float(r.return_1d) if r.return_1d is not None else None,
+            "return_5d": float(r.return_5d) if r.return_5d is not None else None,
+            "return_20d": float(r.return_20d) if r.return_20d is not None else None,
+        } for r in sector_rows])
+
+        # 5) 날짜별 섹터 집계
+        sector_agg = sector_df.groupby("date").agg(
+            sector_return_1d=("return_1d", "mean"),
+            sector_return_5d=("return_5d", "mean"),
+            _sector_return_20d=("return_20d", "mean"),
+            _positive_count=("return_1d", lambda x: (x > 0).sum()),
+            _total_count=("return_1d", "count"),
+        ).reset_index()
+
+        sector_agg["sector_breadth"] = (
+            sector_agg["_positive_count"] / sector_agg["_total_count"]
+        )
+
+        # 6) 현재 종목의 수익률 (df에 이미 있음)
+        my_cols = ["date"]
+        for ret_col in ["return_1d", "return_5d", "return_20d"]:
+            if ret_col in df.columns:
+                my_cols.append(ret_col)
+
+        my_stock = df[my_cols].copy()
+
+        # 병합: 섹터 집계 + 내 종목
+        sector_feat = sector_agg.merge(my_stock, on="date", how="inner")
+
+        # 상대강도 계산
+        if "return_1d" in sector_feat.columns:
+            sector_feat["relative_strength_1d"] = (
+                sector_feat["return_1d"] - sector_feat["sector_return_1d"]
+            )
+        if "return_5d" in sector_feat.columns:
+            sector_feat["relative_strength_5d"] = (
+                sector_feat["return_5d"] - sector_feat["sector_return_5d"]
+            )
+        if "return_20d" in sector_feat.columns:
+            sector_feat["relative_strength_20d"] = (
+                sector_feat["return_20d"] - sector_feat["_sector_return_20d"]
+            )
+
+        # 7) 모멘텀 순위 (벡터화)
+        rank_data = []
+        for date_val in sector_feat["date"].unique():
+            day_returns = sector_df.loc[
+                sector_df["date"] == date_val, "return_5d"
+            ].dropna()
+            my_row = sector_feat.loc[sector_feat["date"] == date_val]
+            if my_row.empty or "return_5d" not in my_row.columns:
+                rank_data.append({"date": date_val, "sector_momentum_rank": None})
+                continue
+            my_val = my_row["return_5d"].iloc[0]
+            if pd.isna(my_val) or day_returns.empty:
+                rank_data.append({"date": date_val, "sector_momentum_rank": None})
+            else:
+                rank = float((day_returns < my_val).sum()) / len(day_returns)
+                rank_data.append({"date": date_val, "sector_momentum_rank": round(rank, 4)})
+
+        rank_df = pd.DataFrame(rank_data)
+        sector_feat = sector_feat.merge(rank_df, on="date", how="left")
+
+        # 필요 컬럼만 선택
+        merge_cols = ["date"]
+        for col in _SECTOR_FEATURE_COLUMNS:
+            if col in sector_feat.columns:
+                merge_cols.append(col)
+
+        sector_result = sector_feat[merge_cols].copy()
+
+        # 반올림
+        for col in _SECTOR_FEATURE_COLUMNS:
+            if col in sector_result.columns and col != "date":
+                sector_result[col] = sector_result[col].round(6)
+
+        df = df.merge(sector_result, on="date", how="left")
+
+        # 컬럼 보장
+        for col in _SECTOR_FEATURE_COLUMNS:
+            if col not in df.columns:
+                df[col] = None
+
+        return df
+
+    # ============================================================
+    # Phase 6B: 뉴스 정제 피처
+    # ============================================================
+
+    def _merge_news_refined_features(
+        self,
+        df: pd.DataFrame,
+        market: str,
+        code: str,
+        session,
+    ) -> pd.DataFrame:
+        """
+        뉴스 정제 피처를 기존 피처 DataFrame에 병합 (Phase 6B)
+
+        1) news_relevance_ratio: 제목에 종목명 포함 비율
+        2) news_sentiment_filtered: 필터링된 센티먼트
+        3) sector_news_sentiment: 섹터 뉴스 센티먼트 (feature_store 기반)
+        """
+        if df.empty:
+            for col in _NEWS_REFINED_FEATURE_COLUMNS:
+                df[col] = None
+            return df
+
+        min_date = df["date"].min()
+        max_date = df["date"].max()
+
+        stock_repo = StockRepository(session)
+        stock_info = stock_repo.get_info(code, market)
+        stock_name = stock_info.name if stock_info else None
+
+        # --- 1) 필터링된 센티먼트 ---
+        if stock_name:
+            news_repo = NewsRepository(session)
+            filtered_sent = news_repo.get_daily_sentiment_filtered(
+                code, stock_name, min_date, max_date,
+            )
+            if filtered_sent:
+                filt_df = pd.DataFrame(filtered_sent)
+                df = df.merge(filt_df, on="date", how="left")
+
+        # --- 2) 섹터 뉴스 센티먼트 ---
+        sector = stock_info.sector if stock_info else None
+        if sector:
+            sector_codes = stock_repo.get_codes_in_sector(sector, market)
+            if len(sector_codes) >= 2:
+                ml_repo = MLRepository(session)
+                sector_rows = ml_repo.get_sector_features_bulk(
+                    market, sector_codes, min_date, max_date,
+                )
+                if sector_rows:
+                    s_df = pd.DataFrame([{
+                        "date": r.date,
+                        "news_sentiment": float(r.news_sentiment) if r.news_sentiment is not None else None,
+                    } for r in sector_rows])
+
+                    sector_sent = s_df.dropna(subset=["news_sentiment"]).groupby("date").agg(
+                        sector_news_sentiment=("news_sentiment", "mean"),
+                    ).reset_index()
+                    sector_sent["sector_news_sentiment"] = sector_sent["sector_news_sentiment"].round(4)
+
+                    df = df.merge(sector_sent, on="date", how="left")
+
+        # 컬럼 보장
+        for col in _NEWS_REFINED_FEATURE_COLUMNS:
             if col not in df.columns:
                 df[col] = None
 

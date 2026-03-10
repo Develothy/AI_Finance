@@ -107,6 +107,20 @@ class FeatureStore(ModelBase):
     program_sell_volume = Column(BigInteger)                # 프로그램 매도
     program_net_volume = Column(BigInteger)                 # 프로그램 순매수
 
+    # 섹터/상대강도 피처 (Phase 6A)
+    sector_return_1d = Column(Numeric(10, 6))               # 섹터 평균 1일 수익률
+    sector_return_5d = Column(Numeric(10, 6))               # 섹터 평균 5일 수익률
+    relative_strength_1d = Column(Numeric(10, 6))           # 종목 - 섹터 평균 (1일)
+    relative_strength_5d = Column(Numeric(10, 6))           # 종목 - 섹터 평균 (5일)
+    relative_strength_20d = Column(Numeric(10, 6))          # 종목 - 섹터 평균 (20일)
+    sector_momentum_rank = Column(Numeric(6, 4))            # 섹터 내 모멘텀 백분위
+    sector_breadth = Column(Numeric(6, 4))                  # 섹터 상승 종목 비율
+
+    # 뉴스 정제 피처 (Phase 6B)
+    news_relevance_ratio = Column(Numeric(6, 4))            # 뉴스 관련성 비율
+    news_sentiment_filtered = Column(Numeric(6, 4))         # 필터링된 뉴스 센티먼트
+    sector_news_sentiment = Column(Numeric(6, 4))           # 섹터 뉴스 센티먼트
+
     # 타겟 변수
     target_class_1d = Column(Integer)
     target_class_5d = Column(Integer)

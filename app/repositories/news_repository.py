@@ -156,6 +156,58 @@ class NewsRepository:
             "market_news_volume": int(r.volume),
         } for r in rows]
 
+    def get_daily_sentiment_filtered(
+        self,
+        code: str,
+        stock_name: str,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict]:
+        """
+        종목별 일별 센티먼트 (제목에 종목명 포함 필터링, Phase 6B)
+
+        Returns:
+            [{"date": ..., "news_sentiment_filtered": ...,
+              "news_relevance_ratio": ...}, ...]
+        """
+        from sqlalchemy import case
+
+        is_relevant = NewsSentiment.title.contains(stock_name)
+
+        rows = (
+            self.session.query(
+                NewsSentiment.date,
+                func.count(NewsSentiment.id).label("total_count"),
+                func.sum(case((is_relevant, 1), else_=0)).label("filtered_count"),
+                func.avg(
+                    case(
+                        (is_relevant, NewsSentiment.sentiment_score),
+                        else_=None,
+                    )
+                ).label("filtered_avg_score"),
+            )
+            .filter(
+                NewsSentiment.code == code,
+                NewsSentiment.date >= start_date,
+                NewsSentiment.date <= end_date,
+            )
+            .group_by(NewsSentiment.date)
+            .order_by(NewsSentiment.date)
+            .all()
+        )
+
+        return [{
+            "date": r.date,
+            "news_sentiment_filtered": (
+                round(float(r.filtered_avg_score), 4)
+                if r.filtered_avg_score else None
+            ),
+            "news_relevance_ratio": (
+                round(int(r.filtered_count) / int(r.total_count), 4)
+                if r.total_count and int(r.total_count) > 0 else None
+            ),
+        } for r in rows]
+
     # ============================================================
     # 일반 조회
     # ============================================================

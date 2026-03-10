@@ -28,7 +28,7 @@ from db import database
 from models import FeatureStore, MLModel, MLTrainingLog
 from repositories import MLRepository
 
-from .feature_engineer import PHASE2_FEATURE_COLUMNS
+from .feature_engineer import PHASE6_FEATURE_COLUMNS
 from .ml_config_loader import get_algorithm_defaults, get_classifier_class
 from .tuner import tune_hyperparameters
 
@@ -72,12 +72,12 @@ class ModelTrainer:
             train_ratio: 학습 데이터 비율
             val_ratio: 검증 데이터 비율
             optuna_trials: Optuna 시도 횟수 (0이면 기본 파라미터)
-            feature_columns: 사용할 피처 컬럼 목록 (None이면 PHASE2_FEATURE_COLUMNS)
+            feature_columns: 사용할 피처 컬럼 목록 (None이면 PHASE6_FEATURE_COLUMNS)
 
         Returns:
             {"model_id": int, "metrics": dict, "model_name": str}
         """
-        features = feature_columns or PHASE2_FEATURE_COLUMNS
+        features = feature_columns or PHASE6_FEATURE_COLUMNS
         model_type = "classification"  # Phase 1은 분류만
 
         # 1. 학습 이력 생성

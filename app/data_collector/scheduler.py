@@ -765,7 +765,7 @@ class DataScheduler:
                     {"job_id": job_name, "market": market})
 
     def add_full_collect_job(self, job_model):
-        """전체 데이터 일괄 수집 크론 잡 등록 (가격→재무→거시→뉴스→공시→수급)"""
+        """전체 데이터 일괄 수집 + 피처 계산 크론 잡 등록 (가격→재무→거시→뉴스→공시→수급→피처)"""
         job_name = job_model.job_name
         cron_expr = job_model.cron_expr
         market = job_model.market or "KOSPI"

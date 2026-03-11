@@ -23,26 +23,51 @@ STATUS_COLORS = {
     "error": "#f44336",
     "running": "#1565c0",
     "pending": "#FF9800",
+    "partial": "#FF9800",
 }
+
+
+def _is_ml_job(job: dict) -> bool:
+    """ML 학습이 포함된 잡인지"""
+    return any(
+        s["step_type"] == "ml" and s.get("enabled", True)
+        for s in job.get("steps", [])
+    )
+
+
+def _get_ml_config(job: dict) -> dict:
+    """ML step의 config 추출"""
+    for s in job.get("steps", []):
+        if s["step_type"] == "ml" and s.get("enabled", True):
+            return s.get("config") or {}
+    return {}
+
+
+def _get_pipeline_steps(job: dict) -> list[str]:
+    """ML 외 활성 단계 목록"""
+    labels = {"price": "가격", "fundamental": "재무", "feature": "피처",
+              "macro": "거시", "news": "뉴스", "disclosure": "공시",
+              "supply": "수급", "alternative": "대안", "market_investor": "시장수급"}
+    return [labels.get(s["step_type"], s["step_type"])
+            for s in job.get("steps", [])
+            if s.get("enabled", True) and s["step_type"] != "ml"]
 
 
 def render():
     inject_custom_css()
     st.header("ML 학습 관리")
 
-    if st.button("새로고침", key="refresh_ml_train"):
+    if st.button("🔄 새로고침", key="refresh_ml_train"):
         st.cache_data.clear()
 
-    # 데이터 로드
     try:
         all_jobs = admin_client.get_schedule_jobs()
     except Exception as e:
         st.error(f"스케줄 목록 조회 실패: {e}")
         all_jobs = []
 
-    ml_jobs = [j for j in all_jobs if j.get("job_type") == "ml_train"]
+    ml_jobs = [j for j in all_jobs if _is_ml_job(j)]
 
-    # ── 탭 ──────────────────────────────────────────────
     tab_list, tab_add, tab_history = st.tabs([
         f"스케줄 목록 ({len(ml_jobs)})",
         "스케줄 추가",
@@ -70,7 +95,8 @@ def _render_schedule_list(ml_jobs: list):
 
     for job in ml_jobs:
         with st.container(border=True):
-            # 헤더: 상태 점 + 잡 이름
+            # 헤더
+            top1, top2 = st.columns([3, 1])
             header_html = (
                 f'{status_dot(job["enabled"])} '
                 f'&nbsp;<span style="font-size:1.05rem;font-weight:600;">'
@@ -81,42 +107,11 @@ def _render_schedule_list(ml_jobs: list):
                     f'&nbsp;<span style="color:#888;font-size:0.85rem;">'
                     f'— {job["description"]}</span>'
                 )
-            st.markdown(header_html, unsafe_allow_html=True)
-
-            # 정보 행
-            markets = job.get("ml_markets") or [job.get("market", "-")]
-            algos = job.get("ml_algorithms") or ["-"]
-            targets = job.get("ml_target_days") or ["-"]
-            optuna = job.get("ml_optuna_trials") or "-"
-            # 파이프라인 단계 표시
-            steps = []
-            if job.get("ml_include_price_collect"):
-                steps.append("가격")
-            if job.get("ml_include_kis_collect"):
-                steps.append("KIS")
-            if job.get("ml_include_dart_collect"):
-                steps.append("DART")
-            if job.get("ml_include_feature_compute", True):
-                steps.append("피처")
-            steps.append("학습")
-            pipeline = "→".join(steps)
-
-            c1, c2 = st.columns(2)
-            c1.caption(
-                f"마켓: **{', '.join(str(m) for m in markets)}** · "
-                f"알고리즘: **{', '.join(algos)}**"
-            )
-            c2.caption(
-                f"타겟: **{', '.join(str(d) for d in targets)}일** · "
-                f"Optuna: **{optuna}회**"
-            )
-
-            c3, c4 = st.columns(2)
-            c3.caption(f"크론: `{job['cron_expr']}` · 파이프라인: {pipeline}")
+            top1.markdown(header_html, unsafe_allow_html=True)
 
             # 버튼
-            btn1, btn2, _ = c4.columns([1, 1, 2])
-            if btn1.button("즉시실행", key=f"ml_run_{job['id']}"):
+            b1, b2 = top2.columns(2)
+            if b1.button("▶ 실행", key=f"ml_run_{job['id']}", type="primary"):
                 try:
                     result = admin_client.run_schedule_job(job["id"])
                     st.info(
@@ -127,7 +122,7 @@ def _render_schedule_list(ml_jobs: list):
                 except Exception as e:
                     st.error(f"실행 실패: {e}")
 
-            if btn2.button("삭제", key=f"ml_del_{job['id']}"):
+            if b2.button("🗑 삭제", key=f"ml_del_{job['id']}"):
                 try:
                     admin_client.delete_schedule_job(job["id"])
                     st.success(f"삭제 완료: {job['job_name']}")
@@ -136,6 +131,23 @@ def _render_schedule_list(ml_jobs: list):
                 except Exception as e:
                     st.error(f"삭제 실패: {e}")
 
+            # ML config 표시
+            ml_cfg = _get_ml_config(job)
+            c1, c2 = st.columns(2)
+            c1.caption(
+                f"마켓: **{', '.join(ml_cfg.get('markets', [job.get('market', '-')]))}** · "
+                f"알고리즘: **{', '.join(ml_cfg.get('algorithms', ['-']))}**"
+            )
+            c2.caption(
+                f"타겟: **{', '.join(str(d) + '일' for d in ml_cfg.get('target_days', ['-']))}** · "
+                f"Optuna: **{ml_cfg.get('optuna_trials', '-')}회**"
+            )
+
+            # 파이프라인 표시
+            pre_steps = _get_pipeline_steps(job)
+            pipeline = "→".join(pre_steps + ["학습"]) if pre_steps else "학습"
+            st.caption(f"크론: `{job['cron_expr']}` · 파이프라인: {pipeline}")
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 탭 2 — 스케줄 추가
@@ -143,7 +155,6 @@ def _render_schedule_list(ml_jobs: list):
 
 def _render_add_schedule():
     with st.form("add_ml_schedule"):
-        # 행 1: 기본 정보
         st.markdown("**기본 정보**")
         r1c1, r1c2, r1c3 = st.columns([2, 2, 3])
         job_name = r1c1.text_input("Job 이름", placeholder="ml_daily_train")
@@ -153,9 +164,7 @@ def _render_add_schedule():
         description = r1c3.text_input("설명", placeholder="KOSPI/KOSDAQ 일일 ML 학습")
 
         st.markdown("")
-
-        # 행 2: ML 설정
-        st.markdown("**ML 설정**")
+        st.markdown("**🤖 ML 설정**")
         r2c1, r2c2 = st.columns(2)
         ml_markets = r2c1.multiselect("대상 마켓", MARKETS, default=["KOSPI", "KOSDAQ"])
         ml_algorithms = r2c2.multiselect("알고리즘", ALGORITHMS, default=ALGORITHMS)
@@ -170,14 +179,12 @@ def _render_add_schedule():
         )
 
         st.markdown("")
-
-        # 행 3: 파이프라인 단계
-        st.markdown("**파이프라인 단계**")
+        st.markdown("**데이터 수집 단계 (선택)**")
         p1, p2, p3, p4 = st.columns(4)
-        include_price = p1.checkbox("Step1: 가격 수집", value=False)
-        include_kis = p2.checkbox("Step2: KIS 수집", value=False)
-        include_dart = p3.checkbox("Step3: DART 수집", value=False)
-        include_feature = p4.checkbox("Step4: 피처 계산", value=True)
+        include_price = p1.checkbox("📊 가격 수집", value=False)
+        include_fundamental = p2.checkbox("💰 재무 수집", value=False)
+        include_feature = p3.checkbox("⚙️ 피처 계산", value=True)
+        include_macro = p4.checkbox("🌍 거시지표", value=False)
 
         submitted = st.form_submit_button("스케줄 추가", type="primary")
         if submitted:
@@ -193,21 +200,34 @@ def _render_add_schedule():
                 st.error("예측 기간을 1개 이상 선택하세요.")
             else:
                 try:
+                    steps = []
+                    if include_price:
+                        steps.append({"step_type": "price", "step_order": 1, "enabled": True})
+                    if include_fundamental:
+                        steps.append({"step_type": "fundamental", "step_order": 2, "enabled": True})
+                    if include_macro:
+                        steps.append({"step_type": "macro", "step_order": 4, "enabled": True})
+                    if include_feature:
+                        steps.append({"step_type": "feature", "step_order": 9, "enabled": True})
+                    steps.append({
+                        "step_type": "ml",
+                        "step_order": 10,
+                        "enabled": True,
+                        "config": {
+                            "markets": ml_markets,
+                            "algorithms": ml_algorithms,
+                            "target_days": ml_target_days,
+                            "optuna_trials": optuna_trials,
+                        },
+                    })
+
                     data = {
                         "job_name": job_name,
-                        "job_type": "ml_train",
                         "market": ml_markets[0],
                         "cron_expr": cron_expr.strip(),
                         "days_back": 365,
                         "description": description or None,
-                        "ml_markets": ml_markets,
-                        "ml_algorithms": ml_algorithms,
-                        "ml_target_days": ml_target_days,
-                        "ml_include_price_collect": include_price,
-                        "ml_include_kis_collect": include_kis,
-                        "ml_include_dart_collect": include_dart,
-                        "ml_include_feature_compute": include_feature,
-                        "ml_optuna_trials": optuna_trials,
+                        "steps": steps,
                     }
                     result = admin_client.create_schedule_job(data)
                     st.success(f"ML 학습 스케줄 추가 완료: {result.get('job_name', '')}")
@@ -237,13 +257,11 @@ def _render_execution_history(ml_jobs: list):
 
     rows = []
     for log in ml_logs:
-        status = log["status"]
-        color = STATUS_COLORS.get(status, "#888")
         rows.append({
             "시작시각": utc_to_kst(log.get("started_at")),
             "종료시각": utc_to_kst(log.get("finished_at")),
             "Job": log.get("job_name", f"id:{log['job_id']}"),
-            "상태": status,
+            "상태": log["status"],
             "성공": log.get("success_count", 0),
             "실패": log.get("failed_count", 0),
             "실행주체": log.get("trigger_by", "manual"),
@@ -252,7 +270,6 @@ def _render_execution_history(ml_jobs: list):
 
     df = pd.DataFrame(rows)
 
-    # 상태 컬럼 색상 스타일링
     def _style_status(val):
         color = STATUS_COLORS.get(val, "#888")
         return f"color: {color}; font-weight: 600;"

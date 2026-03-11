@@ -200,52 +200,62 @@ class ConfigResponse(BaseModel):
     groups: dict[str, ConfigGroup]
 
 
+class JobStepRequest(BaseModel):
+    step_type: str
+    step_order: int
+    enabled: bool = True
+    config: Optional[dict] = None
+
+    @model_validator(mode="after")
+    def validate_step_type(self):
+        valid = {"price", "fundamental", "market_investor", "macro", "news",
+                 "disclosure", "supply", "alternative", "feature", "ml"}
+        if self.step_type not in valid:
+            raise ValueError(f"step_type은 {valid} 중 하나여야 합니다")
+        return self
+
+
+class JobStepResponse(BaseModel):
+    id: int
+    step_type: str
+    step_order: int
+    enabled: bool
+    config: Optional[dict] = None
+
+    @classmethod
+    def from_model(cls, step) -> "JobStepResponse":
+        return cls(
+            id=step.id,
+            step_type=step.step_type,
+            step_order=step.step_order,
+            enabled=step.enabled,
+            config=step.get_config(),
+        )
+
+
 class ScheduleJobRequest(BaseModel):
-    # --- 공통 필드 ---
     job_name: str
-    job_type: str = "data_collect"
     market: str
     sector: Optional[str] = None
-    cron_expr: str  # 크론식: "0 18 * * *" (5필드) 또는 "0 0 18 * * *" (6필드, 초 포함)
+    cron_expr: str
     days_back: int = 7
     enabled: bool = True
     description: Optional[str] = None
-
-    # --- ML 학습 전용 필드 (job_type="ml_train"일 때만 사용) ---
-    ml_markets: list[str] = ["KOSPI", "KOSDAQ"]
-    ml_algorithms: list[str] = ["random_forest", "xgboost", "lightgbm"]
-    ml_target_days: list[int] = [1, 5]
-    ml_include_price_collect: bool = False    # Step 1: 가격 데이터 수집
-    ml_include_kis_collect: bool = False      # Step 2: KIS 기초정보 수집
-    ml_include_dart_collect: bool = False     # Step 3: DART 재무제표 수집
-    ml_include_feature_compute: bool = True   # Step 4: 피처 계산
-    ml_optuna_trials: int = 50
-
-    # --- full_collect 전용 필드 ---
-    fc_include_alternative: bool = True  # 대안 데이터(Google Trends + 네이버 커뮤니티) 수집 포함
+    steps: list[JobStepRequest] = []
 
     @model_validator(mode="after")
     def validate_cron(self):
         parts = self.cron_expr.strip().split()
         if len(parts) not in (5, 6):
             raise ValueError(
-                "cron_expr은 5필드(분 시 일 월 요일) 또는 6필드(초 분 시 일 월 요일) 형식이어야 합니다. "
-                "예: '0 18 * * *', '0 0 18 * * *', '*/10 * * * *'"
+                "cron_expr은 5필드(분 시 일 월 요일) 또는 6필드(초 분 시 일 월 요일) 형식이어야 합니다"
             )
-        return self
-
-    @model_validator(mode="after")
-    def validate_job_type(self):
-        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect", "disclosure_collect", "supply_collect", "market_investor_collect", "alternative_collect", "full_collect")
-        if self.job_type not in valid_types:
-            raise ValueError(f"job_type은 {valid_types} 중 하나여야 합니다.")
         return self
 
 
 class ScheduleJobResponse(BaseModel):
     id: int
     job_name: str
-    job_type: str = "data_collect"
     market: str
     sector: Optional[str]
     cron_expr: str
@@ -255,24 +265,13 @@ class ScheduleJobResponse(BaseModel):
     created_at: Optional[str]
     updated_at: Optional[str]
     next_run_time: Optional[str] = None
-    # ML 학습 전용 (job_type="ml_train")
-    ml_markets: Optional[list[str]] = None
-    ml_algorithms: Optional[list[str]] = None
-    ml_target_days: Optional[list[int]] = None
-    ml_include_price_collect: Optional[bool] = None
-    ml_include_kis_collect: Optional[bool] = None
-    ml_include_dart_collect: Optional[bool] = None
-    ml_include_feature_compute: Optional[bool] = None
-    ml_optuna_trials: Optional[int] = None
-    # full_collect 전용
-    fc_include_alternative: Optional[bool] = None
+    steps: list[JobStepResponse] = []
 
     @classmethod
-    def from_model(cls, job, next_run: Optional[str] = None, ml_config=None):
-        data = dict(
+    def from_model(cls, job, next_run: Optional[str] = None, steps: list = None):
+        return cls(
             id=job.id,
             job_name=job.job_name,
-            job_type=getattr(job, "job_type", "data_collect"),
             market=job.market,
             sector=job.sector,
             cron_expr=job.cron_expr,
@@ -282,19 +281,8 @@ class ScheduleJobResponse(BaseModel):
             created_at=job.created_at.strftime("%Y-%m-%d %H:%M:%S") if job.created_at else None,
             updated_at=job.updated_at.strftime("%Y-%m-%d %H:%M:%S") if job.updated_at else None,
             next_run_time=next_run,
+            steps=[JobStepResponse.from_model(s) for s in (steps or [])],
         )
-        if getattr(job, "job_type", "") == "full_collect":
-            data["fc_include_alternative"] = getattr(job, "include_alternative", True)
-        if ml_config:
-            data["ml_markets"] = ml_config.get_markets()
-            data["ml_algorithms"] = ml_config.get_algorithms()
-            data["ml_target_days"] = ml_config.get_target_days()
-            data["ml_include_price_collect"] = ml_config.include_price_collect
-            data["ml_include_kis_collect"] = ml_config.include_kis_collect
-            data["ml_include_dart_collect"] = ml_config.include_dart_collect
-            data["ml_include_feature_compute"] = ml_config.include_feature_compute
-            data["ml_optuna_trials"] = ml_config.optuna_trials
-        return cls(**data)
 
 
 class ScheduleLogResponse(BaseModel):

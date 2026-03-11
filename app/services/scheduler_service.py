@@ -18,6 +18,143 @@ from repositories.scheduler_repository import SchedulerRepository
 
 logger = get_logger("scheduler_service")
 
+# ── Step 레지스트리 ──
+
+STEP_REGISTRY = {
+    "price":           {"order": 1,  "label": "가격"},
+    "fundamental":     {"order": 2,  "label": "재무"},
+    "market_investor": {"order": 3,  "label": "시장수급"},
+    "macro":           {"order": 4,  "label": "거시지표"},
+    "news":            {"order": 5,  "label": "뉴스"},
+    "disclosure":      {"order": 6,  "label": "공시"},
+    "supply":          {"order": 7,  "label": "수급"},
+    "alternative":     {"order": 8,  "label": "대안"},
+    "feature":         {"order": 9,  "label": "피처"},
+    "ml":              {"order": 10, "label": "ML학습"},
+}
+
+
+# ── Step 핸들러 ──
+
+def _handle_price(market, sector, days_back, config, ctx):
+    from services import StockService
+    from data_collector import DataPipeline
+
+    pipeline = DataPipeline()
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=days_back or 7)).strftime("%Y-%m-%d")
+    fetch_result = pipeline.fetch(start_date=start_date, end_date=end_date, market=market, sector=sector)
+    saved = 0
+    if fetch_result.data or fetch_result.stock_info:
+        svc = StockService(pipeline=pipeline)
+        if fetch_result.data:
+            saved = svc.save_to_db(fetch_result.data, fetch_result.market)
+        if fetch_result.stock_info:
+            svc._save_stock_info(fetch_result.stock_info)
+            ctx["target_codes"] = [s["code"] for s in fetch_result.stock_info]
+    if not ctx.get("target_codes") and fetch_result.data:
+        ctx["target_codes"] = list(fetch_result.data.keys())
+    # target_codes → code_names 매핑 (ctx 초기값 덮어쓰기)
+    if ctx.get("target_codes"):
+        from repositories import StockRepository
+        with database.session() as session:
+            all_cn = StockRepository(session).get_codes_with_names(market)
+            code_set = set(ctx["target_codes"])
+            ctx["code_names"] = [(c, n) for c, n in all_cn if c in code_set]
+    return {"saved": saved, "summary": f"{fetch_result.success_count}종목"}
+
+
+def _handle_fundamental(market, sector, days_back, config, ctx):
+    from services import FundamentalService
+    r = FundamentalService().collect_fundamentals(market=market, codes=ctx.get("target_codes"))
+    return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
+
+
+def _handle_market_investor(market, sector, days_back, config, ctx):
+    from services import FundamentalService
+    r = FundamentalService().collect_market_investor_trading()
+    return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
+
+
+def _handle_macro(market, sector, days_back, config, ctx):
+    from services import MacroService
+    r = MacroService().collect(days_back=days_back or 30)
+    return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
+
+
+def _handle_news(market, sector, days_back, config, ctx):
+    from services import NewsService
+    news_market = market if market in ("KR", "US") else "KR"
+    r = NewsService().collect(market=news_market, codes=ctx.get("code_names"))
+    return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
+
+
+def _handle_disclosure(market, sector, days_back, config, ctx):
+    from services import DisclosureService
+    r = DisclosureService().collect_disclosures(market=market, codes=ctx.get("target_codes"), days=days_back or 60)
+    return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
+
+
+def _handle_supply(market, sector, days_back, config, ctx):
+    from services import DisclosureService
+    r = DisclosureService().collect_supply_demand(market=market, codes=ctx.get("target_codes"), days=days_back or 60)
+    return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
+
+
+def _handle_alternative(market, sector, days_back, config, ctx):
+    from services import AlternativeService
+    code_names = ctx.get("code_names")
+    target_codes = ctx.get("target_codes")
+    if code_names:
+        code_names_for_alt = [(c, n) for c, n in code_names if c in (target_codes or [])]
+        code_only_for_alt = [c for c, _ in code_names_for_alt]
+    else:
+        # ctx에 종목 정보 없으면 빈 리스트 → 전체 종목 fallback 방지
+        code_names_for_alt = []
+        code_only_for_alt = []
+    r = AlternativeService().collect_trends(market=market, codes=code_names_for_alt, days=days_back or 90)
+    r2 = AlternativeService().collect_community(market=market, codes=code_only_for_alt, days=min(days_back or 30, 30))
+    saved = r.get("saved", 0) + r2.get("saved", 0)
+    return {"saved": saved, "summary": f"{saved}건"}
+
+
+def _handle_feature(market, sector, days_back, config, ctx):
+    from ml.feature_engineer import FeatureEngineer
+    feat_result = FeatureEngineer().compute_all(market=market, codes=ctx.get("target_codes") or None)
+    saved = feat_result.get("success", 0)
+    return {"saved": saved, "summary": f"{saved}/{feat_result.get('total', 0)}종목"}
+
+
+def _handle_ml(market, sector, days_back, config, ctx):
+    from ml.training_scheduler import run_training_schedule
+    config = config or {}
+    ml_result = run_training_schedule(
+        markets=config.get("markets", [market]),
+        algorithms=config.get("algorithms"),
+        target_days=config.get("target_days"),
+        include_price_collect=False,
+        include_kis_collect=False,
+        include_dart_collect=False,
+        include_feature_compute=False,
+        optuna_trials=config.get("optuna_trials", 50),
+        days_back=days_back,
+    )
+    return {"saved": ml_result.get("trained", 0), "summary": f"{ml_result.get('trained', 0)}모델"}
+
+
+STEP_HANDLERS = {
+    "price": _handle_price,
+    "fundamental": _handle_fundamental,
+    "market_investor": _handle_market_investor,
+    "macro": _handle_macro,
+    "news": _handle_news,
+    "disclosure": _handle_disclosure,
+    "supply": _handle_supply,
+    "alternative": _handle_alternative,
+    "feature": _handle_feature,
+    "ml": _handle_ml,
+}
+
 
 class SchedulerService:
 
@@ -30,11 +167,14 @@ class SchedulerService:
             scheduler = JobScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
             next_runs = scheduler.get_next_runs() if scheduler else {}
 
-            ml_job_ids = [j.id for j in jobs if getattr(j, "job_type", "") == "ml_train"]
-            ml_configs = repo.get_ml_configs_by_ids(ml_job_ids)
+            all_job_ids = [j.id for j in jobs]
+            steps_by_job = repo.get_steps_for_jobs(all_job_ids)
 
             return [
-                ScheduleJobResponse.from_model(j, next_runs.get(j.job_name), ml_config=ml_configs.get(j.id))
+                ScheduleJobResponse.from_model(
+                    j, next_runs.get(j.job_name),
+                    steps=steps_by_job.get(j.id, []),
+                )
                 for j in jobs
             ]
 
@@ -48,7 +188,6 @@ class SchedulerService:
 
             job_data = {
                 "job_name": req.job_name,
-                "job_type": req.job_type,
                 "market": req.market,
                 "sector": req.sector,
                 "cron_expr": req.cron_expr,
@@ -56,28 +195,23 @@ class SchedulerService:
                 "enabled": req.enabled,
                 "description": req.description,
             }
-            if req.job_type == "full_collect":
-                job_data["include_alternative"] = req.fc_include_alternative
             job = repo.create_job(job_data)
 
-            ml_config = None
-            if req.job_type == "ml_train":
-                ml_config = repo.create_ml_config({
-                    "job_id": job.id,
-                    "markets": json.dumps(req.ml_markets),
-                    "algorithms": json.dumps(req.ml_algorithms),
-                    "target_days": json.dumps(req.ml_target_days),
-                    "include_price_collect": req.ml_include_price_collect,
-                    "include_kis_collect": req.ml_include_kis_collect,
-                    "include_dart_collect": req.ml_include_dart_collect,
-                    "include_feature_compute": req.ml_include_feature_compute,
-                    "optuna_trials": req.ml_optuna_trials,
-                })
+            steps_data = []
+            for s in req.steps:
+                sd = {
+                    "step_type": s.step_type,
+                    "step_order": s.step_order,
+                    "enabled": s.enabled,
+                    "config": json.dumps(s.config) if s.config else None,
+                }
+                steps_data.append(sd)
+            steps = repo.replace_steps(job.id, steps_data)
 
             scheduler = JobScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
             if scheduler:
-                scheduler.sync_job(job.job_name, "add", job, ml_config=ml_config)
-            return ScheduleJobResponse.from_model(job)
+                scheduler.sync_job(job.job_name, "add", job, steps=steps)
+            return ScheduleJobResponse.from_model(job, steps=steps)
 
     def update_job(self, job_id: int, req: ScheduleJobRequest) -> ScheduleJobResponse:
         with database.session() as session:
@@ -96,7 +230,6 @@ class SchedulerService:
 
             update_data = {
                 "job_name": req.job_name,
-                "job_type": req.job_type,
                 "market": req.market,
                 "sector": req.sector,
                 "cron_expr": req.cron_expr,
@@ -104,34 +237,24 @@ class SchedulerService:
                 "enabled": req.enabled,
                 "description": req.description,
             }
-            if req.job_type == "full_collect":
-                update_data["include_alternative"] = req.fc_include_alternative
             repo.update_job(job, update_data)
 
-            ml_config = None
-            if req.job_type == "ml_train":
-                ml_config = repo.get_ml_config(job.id)
-                ml_data = {
-                    "markets": json.dumps(req.ml_markets),
-                    "algorithms": json.dumps(req.ml_algorithms),
-                    "target_days": json.dumps(req.ml_target_days),
-                    "include_price_collect": req.ml_include_price_collect,
-                    "include_kis_collect": req.ml_include_kis_collect,
-                    "include_dart_collect": req.ml_include_dart_collect,
-                    "include_feature_compute": req.ml_include_feature_compute,
-                    "optuna_trials": req.ml_optuna_trials,
+            steps_data = []
+            for s in req.steps:
+                sd = {
+                    "step_type": s.step_type,
+                    "step_order": s.step_order,
+                    "enabled": s.enabled,
+                    "config": json.dumps(s.config) if s.config else None,
                 }
-                if ml_config:
-                    repo.update_ml_config(ml_config, ml_data)
-                else:
-                    ml_data["job_id"] = job.id
-                    ml_config = repo.create_ml_config(ml_data)
+                steps_data.append(sd)
+            steps = repo.replace_steps(job.id, steps_data)
 
             scheduler = JobScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
             if scheduler:
                 scheduler.sync_job(old_job_name, "remove")
-                scheduler.sync_job(job.job_name, "add", job, ml_config=ml_config)
-            return ScheduleJobResponse.from_model(job)
+                scheduler.sync_job(job.job_name, "add", job, steps=steps)
+            return ScheduleJobResponse.from_model(job, steps=steps)
 
     def delete_job(self, job_id: int) -> dict:
         with database.session() as session:
@@ -159,51 +282,24 @@ class SchedulerService:
                 from fastapi import HTTPException
                 raise HTTPException(status_code=404, detail=f"스케줄 없음: id={job_id}")
 
-            job_type = job.job_type
-            job_days_back = job.days_back
-            job_market = job.market
-            job_sector = job.sector
-            job_include_alternative = getattr(job, "include_alternative", True)
-
-            # ML 전용 설정
-            ml_markets = None
-            ml_algorithms = None
-            ml_target_days = None
-            ml_include_price_collect = False
-            ml_include_kis_collect = False
-            ml_include_dart_collect = False
-            ml_include_feature = True
-            ml_optuna_trials = 50
-            if job_type == "ml_train":
-                config = repo.get_ml_config(job.id)
-                if config:
-                    ml_markets = config.get_markets()
-                    ml_algorithms = config.get_algorithms()
-                    ml_target_days = config.get_target_days()
-                    ml_include_price_collect = config.include_price_collect
-                    ml_include_kis_collect = config.include_kis_collect
-                    ml_include_dart_collect = config.include_dart_collect
-                    ml_include_feature = config.include_feature_compute
-                    ml_optuna_trials = config.optuna_trials
+            steps = repo.get_steps_for_job(job.id)
+            steps_data = [
+                {"step_type": s.step_type, "step_order": s.step_order,
+                 "enabled": s.enabled, "config": s.get_config()}
+                for s in steps
+            ]
 
             log = repo.create_log({"job_id": job.id, "started_at": datetime.now(), "status": "running"})
             log_id = log.id
+            job_market = job.market
+            job_sector = job.sector
+            job_days_back = job.days_back
 
-        if job_type == "ml_train":
-            thread = threading.Thread(
-                target=self._run_ml_train,
-                args=(log_id, ml_markets, ml_algorithms, ml_target_days,
-                      ml_include_price_collect, ml_include_kis_collect,
-                      ml_include_dart_collect, ml_include_feature,
-                      ml_optuna_trials, job_days_back, base_date),
-                daemon=True,
-            )
-        else:
-            thread = threading.Thread(
-                target=self._run_job_by_type,
-                args=(log_id, job_type, job_market, job_sector, job_days_back, job_include_alternative),
-                daemon=True,
-            )
+        thread = threading.Thread(
+            target=self._run_job,
+            args=(log_id, job_market, job_sector, job_days_back, steps_data),
+            daemon=True,
+        )
         thread.start()
 
         return {"success": True, "log_id": log_id, "message": f"실행 시작 (log_id={log_id})"}
@@ -230,47 +326,13 @@ class SchedulerService:
                 for log, job_name in rows
             ]
 
-    # ── 내부 실행 로직 (백그라운드 스레드) ──
+    # ── 통합 실행 로직 (백그라운드 스레드) ──
 
-    def _run_job_by_type(self, log_id: int, job_type: str, market: str, sector: str, days_back: int, include_alternative: bool = True):
-        """job_type별 서비스 호출 + ScheduleLog 업데이트"""
+    def _run_job(self, log_id: int, market: str, sector: str, days_back: int,
+                 steps_data: list[dict]):
+        """step 기반 통합 잡 실행"""
         try:
-            if job_type == "fundamental_collect":
-                from services import FundamentalService
-                result = FundamentalService().collect_fundamentals(market=market)
-
-            elif job_type == "market_investor_collect":
-                from services import FundamentalService
-                result = FundamentalService().collect_market_investor_trading()
-
-            elif job_type == "macro_collect":
-                from services import MacroService
-                result = MacroService().collect(days_back=days_back or 30)
-
-            elif job_type == "news_collect":
-                from services import NewsService
-                news_market = market if market in ("KR", "US") else "KR"
-                result = NewsService().collect(market=news_market)
-
-            elif job_type == "disclosure_collect":
-                from services import DisclosureService
-                result = DisclosureService().collect_disclosures(market=market, days=days_back or 60)
-
-            elif job_type == "supply_collect":
-                from services import DisclosureService
-                result = DisclosureService().collect_supply_demand(market=market, days=days_back or 60)
-
-            elif job_type == "alternative_collect":
-                from services import AlternativeService
-                result = AlternativeService().collect_all(market=market, days=days_back or 90)
-
-            elif job_type == "full_collect":
-                result = self._run_full_collect(market, days_back, sector, include_alternative=include_alternative)
-
-            else:
-                from services import StockService
-                StockService().run_schedule_job(log_id, market, sector, days_back)
-                return
+            result = _execute_pipeline(market, sector, days_back, steps_data)
 
             with database.session() as session:
                 repo = SchedulerRepository(session)
@@ -278,15 +340,15 @@ class SchedulerService:
                 if log_entry:
                     repo.update_log(log_entry, {
                         "finished_at": datetime.now(),
-                        "status": "success",
-                        "success_count": result.get("success", result.get("stock_success", 0)),
-                        "failed_count": result.get("failed", result.get("stock_failed", 0)),
+                        "status": "success" if result.get("failed", 0) == 0 else "partial",
+                        "success_count": result.get("success", 0),
+                        "failed_count": result.get("failed", 0),
                         "db_saved_count": result.get("saved", 0),
                         "message": result.get("message", "")[:500],
                     })
 
         except Exception as e:
-            logger.error(f"잡 실행 실패: {job_type}", "run_job_by_type", {"error": str(e)})
+            logger.error(f"잡 실행 실패", "_run_job", {"error": str(e)})
             with database.session() as session:
                 repo = SchedulerRepository(session)
                 log_entry = repo.get_log(log_id)
@@ -297,168 +359,66 @@ class SchedulerService:
                         "message": str(e)[:500],
                     })
 
-    def _run_ml_train(
-        self, log_id, ml_markets, ml_algorithms, ml_target_days,
-        include_price, include_kis, include_dart, include_feature,
-        optuna_trials, days_back, base_date,
-    ):
-        """ML 학습 실행 (백그라운드 스레드)"""
-        try:
-            from ml.training_scheduler import run_training_schedule
 
-            result = run_training_schedule(
-                markets=ml_markets or ["KOSPI", "KOSDAQ"],
-                algorithms=ml_algorithms,
-                target_days=ml_target_days,
-                include_price_collect=include_price,
-                include_kis_collect=include_kis,
-                include_dart_collect=include_dart,
-                include_feature_compute=include_feature,
-                optuna_trials=optuna_trials,
-                days_back=days_back,
-                base_date=base_date,
-            )
-            with database.session() as session:
-                repo = SchedulerRepository(session)
-                log_entry = repo.get_log(log_id)
-                if log_entry:
-                    repo.update_log(log_entry, {
-                        "finished_at": datetime.now(),
-                        "status": "success" if result["failed"] == 0 else "partial",
-                        "success_count": result["trained"],
-                        "failed_count": result["failed"],
-                        "message": result.get("summary", "")[:500],
-                    })
-        except Exception as e:
-            with database.session() as session:
-                repo = SchedulerRepository(session)
-                log_entry = repo.get_log(log_id)
-                if log_entry:
-                    repo.update_log(log_entry, {
-                        "finished_at": datetime.now(),
-                        "status": "failed",
-                        "message": str(e)[:500],
-                    })
-
-    def _run_full_collect(self, market: str, days_back: int, sector: str = None, include_alternative: bool = True) -> dict:
-        """전체 데이터 일괄 수집 + 피처 계산 (sector 지정 시 해당 섹터만)"""
-        from services import StockService, FundamentalService, MacroService
-        from services import NewsService, DisclosureService
-        from data_collector import DataPipeline
-
-        steps = []
-        total_saved = 0
-        total_failed = 0
-        target_codes = []
-
-        # 1) 가격 — sector 필터 적용, target_codes 확정
-        try:
-            pipeline = DataPipeline()
-            end_date = datetime.now().strftime("%Y-%m-%d")
-            start_date = (datetime.now() - timedelta(days=days_back or 7)).strftime("%Y-%m-%d")
-            fetch_result = pipeline.fetch(start_date=start_date, end_date=end_date, market=market, sector=sector)
-            if fetch_result.data or fetch_result.stock_info:
-                svc = StockService(pipeline=pipeline)
-                if fetch_result.data:
-                    total_saved += svc.save_to_db(fetch_result.data, fetch_result.market)
-                if fetch_result.stock_info:
-                    svc._save_stock_info(fetch_result.stock_info)
-                    target_codes = [s["code"] for s in fetch_result.stock_info]
-            if not target_codes and fetch_result.data:
-                target_codes = list({d["code"] for d in fetch_result.data})
-            steps.append(f"가격: {fetch_result.success_count}종목")
-        except Exception as e:
-            steps.append(f"가격: 실패({e})")
-            total_failed += 1
-
-        if not target_codes:
-            return {"saved": 0, "failed": 1, "success": 0, "message": "대상 종목 없음"}
-
-        # target_codes로 (code, name) 매핑 (뉴스용)
+def _init_ctx(market: str, sector: str) -> dict:
+    """market/sector 기반으로 ctx 사전 초기화 (price step 실패 대비)"""
+    ctx = {}
+    try:
+        from data_collector.stock_codes import (
+            get_kr_stock_list, filter_kr_stocks_by_sector, is_korean_market,
+        )
         from repositories import StockRepository
-        with database.session() as session:
-            all_code_names = StockRepository(session).get_codes_with_names(market)
-            code_names = [(c, n) for c, n in all_code_names if c in target_codes]
 
-        logger.info(f"일괄수집 대상: {len(target_codes)}종목 (sector={sector})", "_run_full_collect")
+        if is_korean_market(market):
+            listing = get_kr_stock_list(market)
+            filtered = filter_kr_stocks_by_sector(listing, sector)
+            codes = filtered["code"].tolist()
+        else:
+            codes = []
 
-        # 2) 재무 — target_codes만
+        if codes:
+            ctx["target_codes"] = codes
+            with database.session() as session:
+                all_cn = StockRepository(session).get_codes_with_names(market)
+                code_set = set(codes)
+                ctx["code_names"] = [(c, n) for c, n in all_cn if c in code_set]
+    except Exception as e:
+        logger.warning(f"ctx 사전 초기화 실패: {e}", "_init_ctx")
+
+    return ctx
+
+
+def _execute_pipeline(market: str, sector: str, days_back: int,
+                      steps_data: list[dict]) -> dict:
+    """Step 핸들러 기반 파이프라인 실행"""
+    results = []
+    total_saved = 0
+    total_failed = 0
+    ctx = _init_ctx(market, sector)
+
+    sorted_steps = sorted(
+        [s for s in steps_data if s.get("enabled", True)],
+        key=lambda s: s["step_order"],
+    )
+
+    for step in sorted_steps:
+        handler = STEP_HANDLERS.get(step["step_type"])
+        if not handler:
+            results.append(f"{step['step_type']}: 알 수 없는 단계")
+            continue
+        label = STEP_REGISTRY.get(step["step_type"], {}).get("label", step["step_type"])
         try:
-            r = FundamentalService().collect_fundamentals(market=market, codes=target_codes)
+            r = handler(market, sector, days_back, step.get("config"), ctx)
             total_saved += r.get("saved", 0)
-            steps.append(f"재무: {r.get('saved', 0)}건")
+            results.append(f"{label}: {r.get('summary', 'OK')}")
         except Exception as e:
-            steps.append(f"재무: 실패({e})")
+            results.append(f"{label}: 실패({e})")
             total_failed += 1
 
-        # 3) 거시지표 (종목 무관)
-        try:
-            r = MacroService().collect(days_back=days_back or 30)
-            total_saved += r.get("saved", 0)
-            steps.append(f"거시: {r.get('saved', 0)}건")
-        except Exception as e:
-            steps.append(f"거시: 실패({e})")
-            total_failed += 1
-
-        # 4) 뉴스 — target_codes만
-        try:
-            news_market = market if market in ("KR", "US") else "KR"
-            r = NewsService().collect(market=news_market, codes=code_names)
-            total_saved += r.get("saved", 0)
-            steps.append(f"뉴스: {r.get('saved', 0)}건")
-        except Exception as e:
-            steps.append(f"뉴스: 실패({e})")
-            total_failed += 1
-
-        # 5) 공시 — target_codes만
-        try:
-            r = DisclosureService().collect_disclosures(market=market, codes=target_codes, days=days_back or 60)
-            total_saved += r.get("saved", 0)
-            steps.append(f"공시: {r.get('saved', 0)}건")
-        except Exception as e:
-            steps.append(f"공시: 실패({e})")
-            total_failed += 1
-
-        # 6) 수급 — target_codes만
-        try:
-            r = DisclosureService().collect_supply_demand(market=market, codes=target_codes, days=days_back or 60)
-            total_saved += r.get("saved", 0)
-            steps.append(f"수급: {r.get('saved', 0)}건")
-        except Exception as e:
-            steps.append(f"수급: 실패({e})")
-            total_failed += 1
-
-        # 7) 대안 데이터 — target_codes만 (선택적)
-        if include_alternative:
-            try:
-                from services import AlternativeService
-                code_names_for_alt = [(c, n) for c, n in code_names if c in target_codes]
-                code_only_for_alt = [c for c, _ in code_names_for_alt]
-                r = AlternativeService().collect_trends(market=market, codes=code_names_for_alt, days=days_back or 90)
-                r2 = AlternativeService().collect_community(market=market, codes=code_only_for_alt, days=min(days_back or 30, 30))
-                alt_saved = r.get("saved", 0) + r2.get("saved", 0)
-                total_saved += alt_saved
-                steps.append(f"대안: {alt_saved}건")
-            except Exception as e:
-                steps.append(f"대안: 실패({e})")
-                total_failed += 1
-
-        # 8) 피처 계산 — target_codes만
-        try:
-            from ml.feature_engineer import FeatureEngineer
-            feat_result = FeatureEngineer().compute_all(market=market, codes=target_codes)
-            feat_saved = feat_result.get("success", 0)
-            total_saved += feat_saved
-            steps.append(f"피처: {feat_saved}/{feat_result.get('total', 0)}종목")
-        except Exception as e:
-            steps.append(f"피처: 실패({e})")
-            total_failed += 1
-
-        total_steps = 8 if include_alternative else 7
-        msg = " | ".join(steps)
-        return {
-            "saved": total_saved,
-            "failed": total_failed,
-            "success": total_steps - total_failed,
-            "message": f"일괄 수집+피처 완료: {msg}",
-        }
+    msg = " | ".join(results)
+    return {
+        "saved": total_saved,
+        "failed": total_failed,
+        "success": len(sorted_steps) - total_failed,
+        "message": f"파이프라인 완료: {msg}" if results else "실행할 단계 없음",
+    }

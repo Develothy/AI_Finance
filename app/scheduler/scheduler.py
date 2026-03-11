@@ -104,15 +104,15 @@ class JobScheduler:
         with database.session() as session:
             repo = SchedulerRepository(session)
             jobs = repo.get_all_jobs()
+            enabled_ids = [j.id for j in jobs if j.enabled]
+            steps_by_job = repo.get_steps_for_jobs(enabled_ids)
             loaded = 0
             for job_model in jobs:
                 if not job_model.enabled:
                     continue
                 try:
-                    ml_config = None
-                    if job_model.job_type == "ml_train":
-                        ml_config = repo.get_ml_config(job_model.id)
-                    self._dispatch_job(job_model, ml_config)
+                    steps = steps_by_job.get(job_model.id, [])
+                    self._add_scheduled_job(job_model, steps=steps)
                     loaded += 1
                 except Exception as e:
                     logger.warning(f"잡 등록 실패: {job_model.job_name} - {e}", "load_jobs_from_db")
@@ -277,398 +277,33 @@ class JobScheduler:
             sector=sector
         )
 
-    def add_ml_train_job(self, job_model, config):
-        """ML 학습 크론 잡 등록
-
-        Args:
-            job_model: ScheduleJob 모델
-            config: MLTrainConfig 모델 (markets, algorithms, target_days 등)
-        """
-        from ml.training_scheduler import run_training_schedule
-
-        job_name = job_model.job_name
-        cron_expr = job_model.cron_expr
-
-        # config에서 ML 전용 설정 추출 (세션 밖에서 사용하기 위해 값 복사)
-        markets = config.get_markets() if config else ["KOSPI", "KOSDAQ"]
-        algorithms = config.get_algorithms() if config else None
-        target_days = config.get_target_days() if config else None
-        include_price_collect = config.include_price_collect if config else False
-        include_kis_collect = config.include_kis_collect if config else False
-        include_dart_collect = config.include_dart_collect if config else False
-        include_feature = config.include_feature_compute if config else True
-        optuna_trials = config.optuna_trials if config else 50
-        days_back = job_model.days_back or 7
-
-        def ml_job_func():
-            logger.info(f"ML 학습 스케줄 시작", "ml_cron_job",
-                        {"job_id": job_name, "markets": markets})
-
-            log_id = self._create_schedule_log(job_name)
-
-            try:
-                result = run_training_schedule(
-                    markets=markets,
-                    algorithms=algorithms,
-                    target_days=target_days,
-                    include_price_collect=include_price_collect,
-                    include_kis_collect=include_kis_collect,
-                    include_dart_collect=include_dart_collect,
-                    include_feature_compute=include_feature,
-                    optuna_trials=optuna_trials,
-                    days_back=days_back,
-                )
-
-                self._update_schedule_log(log_id, {
-                    "status": "success" if result["failed"] == 0 else "partial",
-                    "success_count": result["trained"],
-                    "failed_count": result["failed"],
-                    "message": result.get("summary", "")[:500],
-                })
-
-            except Exception as e:
-                self._update_schedule_log(log_id, {
-                    "status": "failed",
-                    "message": str(e)[:500],
-                })
-                logger.error(f"ML 학습 스케줄 실패", "ml_cron_job", {"error": str(e)})
-
-        trigger = parse_cron_expr(cron_expr)
-        job = self.scheduler.add_job(
-            ml_job_func, trigger=trigger, id=job_name,
-            replace_existing=True, max_instances=1,
-        )
-        self._jobs[job_name] = job
-        logger.info(f"ML 학습 스케줄 등록", "add_ml_train_job",
-                    {"job_id": job_name, "markets": markets})
-
-    def add_fundamental_job(self, job_model):
-        """재무 데이터 수집 크론 잡 등록 (Phase 2)
-
-        Args:
-            job_model: ScheduleJob 모델 (job_type="fundamental_collect")
-        """
-        job_name = job_model.job_name
-        cron_expr = job_model.cron_expr
-        market = job_model.market or "KOSPI"
-
-        def fundamental_job_func():
-            from services import FundamentalService
-
-            logger.info(f"재무 데이터 수집 스케줄 시작", "fundamental_cron_job",
-                        {"job_id": job_name, "market": market})
-
-            log_id = self._create_schedule_log(job_name)
-
-            try:
-                result = FundamentalService().collect_fundamentals(market=market)
-
-                self._update_schedule_log(log_id, {
-                    "status": "success",
-                    "success_count": result.get("success", 0),
-                    "failed_count": result.get("failed", 0),
-                    "db_saved_count": result.get("saved", 0),
-                    "message": result.get("message", "")[:500],
-                })
-
-            except Exception as e:
-                self._update_schedule_log(log_id, {
-                    "status": "failed",
-                    "message": str(e)[:500],
-                })
-                logger.error(f"재무 데이터 수집 스케줄 실패", "fundamental_cron_job",
-                             {"error": str(e)})
-
-        trigger = parse_cron_expr(cron_expr)
-        job = self.scheduler.add_job(
-            fundamental_job_func, trigger=trigger, id=job_name,
-            replace_existing=True, max_instances=1,
-        )
-        self._jobs[job_name] = job
-        logger.info(f"재무 데이터 수집 스케줄 등록", "add_fundamental_job",
-                    {"job_id": job_name, "market": market})
-
-    def add_market_investor_job(self, job_model):
-        """시장 투자자매매동향 수집 크론 잡 등록 (Phase 5.5)
-
-        Args:
-            job_model: ScheduleJob 모델 (job_type="market_investor_collect")
-        """
-        job_name = job_model.job_name
-        cron_expr = job_model.cron_expr
-
-        def market_investor_job_func():
-            from services import FundamentalService
-
-            logger.info(f"시장 투자자매매동향 수집 스케줄 시작", "market_investor_cron_job",
-                        {"job_id": job_name})
-
-            log_id = self._create_schedule_log(job_name)
-
-            try:
-                result = FundamentalService().collect_market_investor_trading()
-
-                self._update_schedule_log(log_id, {
-                    "status": "success",
-                    "db_saved_count": result.get("saved", 0),
-                    "message": f"시장 투자자매매동향 {result.get('saved', 0)}건 저장",
-                })
-
-            except Exception as e:
-                self._update_schedule_log(log_id, {
-                    "status": "failed",
-                    "message": str(e)[:500],
-                })
-                logger.error(f"시장 투자자매매동향 수집 스케줄 실패", "market_investor_cron_job",
-                             {"error": str(e)})
-
-        trigger = parse_cron_expr(cron_expr)
-        job = self.scheduler.add_job(
-            market_investor_job_func, trigger=trigger, id=job_name,
-            replace_existing=True, max_instances=1,
-        )
-        self._jobs[job_name] = job
-        logger.info(f"시장 투자자매매동향 수집 스케줄 등록", "add_market_investor_job",
-                    {"job_id": job_name})
-
-    def add_macro_job(self, job_model):
-        """거시경제 지표 수집 크론 잡 등록 (Phase 3)
-
-        Args:
-            job_model: ScheduleJob 모델 (job_type="macro_collect")
-        """
-        job_name = job_model.job_name
-        cron_expr = job_model.cron_expr
-        days_back = job_model.days_back or 7
-
-        def macro_job_func():
-            from services import MacroService
-
-            logger.info(f"거시지표 수집 스케줄 시작", "macro_cron_job",
-                        {"job_id": job_name})
-
-            log_id = self._create_schedule_log(job_name)
-
-            try:
-                result = MacroService().collect(days_back=days_back)
-
-                self._update_schedule_log(log_id, {
-                    "status": "success",
-                    "success_count": result.get("success", 0),
-                    "failed_count": result.get("failed", 0),
-                    "db_saved_count": result.get("saved", 0),
-                    "message": result.get("message", "")[:500],
-                })
-
-            except Exception as e:
-                self._update_schedule_log(log_id, {
-                    "status": "failed",
-                    "message": str(e)[:500],
-                })
-                logger.error(f"거시지표 수집 스케줄 실패", "macro_cron_job",
-                             {"error": str(e)})
-
-        trigger = parse_cron_expr(cron_expr)
-        job = self.scheduler.add_job(
-            macro_job_func, trigger=trigger, id=job_name,
-            replace_existing=True, max_instances=1,
-        )
-        self._jobs[job_name] = job
-        logger.info(f"거시지표 수집 스케줄 등록", "add_macro_job",
-                    {"job_id": job_name})
-
-    def add_news_job(self, job_model):
-        """뉴스 센티먼트 수집 크론 잡 등록 (Phase 4)
-
-        Args:
-            job_model: ScheduleJob 모델 (job_type="news_collect")
-        """
-        job_name = job_model.job_name
-        cron_expr = job_model.cron_expr
-        market = job_model.market or "KR"
-
-        def news_job_func():
-            from services import NewsService
-
-            logger.info(f"뉴스 수집 스케줄 시작", "news_cron_job",
-                        {"job_id": job_name, "market": market})
-
-            log_id = self._create_schedule_log(job_name)
-
-            try:
-                result = NewsService().collect(market=market)
-
-                self._update_schedule_log(log_id, {
-                    "status": "success",
-                    "success_count": result.get("stock_success", 0),
-                    "failed_count": result.get("stock_failed", 0),
-                    "db_saved_count": result.get("saved", 0),
-                    "message": result.get("message", "")[:500],
-                })
-
-            except Exception as e:
-                self._update_schedule_log(log_id, {
-                    "status": "failed",
-                    "message": str(e)[:500],
-                })
-                logger.error(f"뉴스 수집 스케줄 실패", "news_cron_job",
-                             {"error": str(e)})
-
-        trigger = parse_cron_expr(cron_expr)
-        job = self.scheduler.add_job(
-            news_job_func, trigger=trigger, id=job_name,
-            replace_existing=True, max_instances=1,
-        )
-        self._jobs[job_name] = job
-        logger.info(f"뉴스 수집 스케줄 등록", "add_news_job",
-                    {"job_id": job_name, "market": market})
-
-    def add_disclosure_job(self, job_model):
-        """DART 공시 수집 크론 잡 등록 (Phase 5A)"""
-        job_name = job_model.job_name
-        cron_expr = job_model.cron_expr
-        market = job_model.market or "KOSPI"
-        days_back = job_model.days_back or 60
-
-        def disclosure_job_func():
-            from services import DisclosureService
-
-            logger.info(f"공시 수집 스케줄 시작", "disclosure_cron_job",
-                        {"job_id": job_name, "market": market})
-
-            log_id = self._create_schedule_log(job_name)
-
-            try:
-                result = DisclosureService().collect_disclosures(market=market, days=days_back)
-
-                self._update_schedule_log(log_id, {
-                    "status": "success",
-                    "success_count": result.get("success", 0),
-                    "failed_count": result.get("failed", 0),
-                    "db_saved_count": result.get("saved", 0),
-                    "message": result.get("message", "")[:500],
-                })
-
-            except Exception as e:
-                self._update_schedule_log(log_id, {
-                    "status": "failed",
-                    "message": str(e)[:500],
-                })
-                logger.error(f"공시 수집 스케줄 실패", "disclosure_cron_job",
-                             {"error": str(e)})
-
-        trigger = parse_cron_expr(cron_expr)
-        job = self.scheduler.add_job(
-            disclosure_job_func, trigger=trigger, id=job_name,
-            replace_existing=True, max_instances=1,
-        )
-        self._jobs[job_name] = job
-        logger.info(f"공시 수집 스케줄 등록", "add_disclosure_job",
-                    {"job_id": job_name, "market": market})
-
-    def add_supply_job(self, job_model):
-        """KRX 수급 수집 크론 잡 등록 (Phase 5B)"""
-        job_name = job_model.job_name
-        cron_expr = job_model.cron_expr
-        market = job_model.market or "KOSPI"
-        days_back = job_model.days_back or 60
-
-        def supply_job_func():
-            from services import DisclosureService
-
-            logger.info(f"수급 수집 스케줄 시작", "supply_cron_job",
-                        {"job_id": job_name, "market": market})
-
-            log_id = self._create_schedule_log(job_name)
-
-            try:
-                result = DisclosureService().collect_supply_demand(market=market, days=days_back)
-
-                self._update_schedule_log(log_id, {
-                    "status": "success",
-                    "success_count": result.get("success", 0),
-                    "failed_count": result.get("failed", 0),
-                    "db_saved_count": result.get("saved", 0),
-                    "message": result.get("message", "")[:500],
-                })
-
-            except Exception as e:
-                self._update_schedule_log(log_id, {
-                    "status": "failed",
-                    "message": str(e)[:500],
-                })
-                logger.error(f"수급 수집 스케줄 실패", "supply_cron_job",
-                             {"error": str(e)})
-
-        trigger = parse_cron_expr(cron_expr)
-        job = self.scheduler.add_job(
-            supply_job_func, trigger=trigger, id=job_name,
-            replace_existing=True, max_instances=1,
-        )
-        self._jobs[job_name] = job
-        logger.info(f"수급 수집 스케줄 등록", "add_supply_job",
-                    {"job_id": job_name, "market": market})
-
-    def add_alternative_job(self, job_model):
-        """대안 데이터(Google Trends + 네이버 커뮤니티) 수집 크론 잡 등록 (Phase 7)"""
-        job_name = job_model.job_name
-        cron_expr = job_model.cron_expr
-        market = job_model.market or "KOSPI"
-        days_back = job_model.days_back or 90
-
-        def alternative_job_func():
-            from services import AlternativeService
-
-            logger.info(f"대안 데이터 수집 스케줄 시작", "alternative_cron_job",
-                        {"job_id": job_name, "market": market})
-
-            log_id = self._create_schedule_log(job_name)
-
-            try:
-                result = AlternativeService().collect_all(market=market, days=days_back)
-
-                self._update_schedule_log(log_id, {
-                    "status": "success",
-                    "db_saved_count": result.get("saved", 0),
-                    "message": result.get("message", "")[:500],
-                })
-
-            except Exception as e:
-                self._update_schedule_log(log_id, {
-                    "status": "failed",
-                    "message": str(e)[:500],
-                })
-                logger.error(f"대안 데이터 수집 스케줄 실패", "alternative_cron_job",
-                             {"error": str(e)})
-
-        trigger = parse_cron_expr(cron_expr)
-        job = self.scheduler.add_job(
-            alternative_job_func, trigger=trigger, id=job_name,
-            replace_existing=True, max_instances=1,
-        )
-        self._jobs[job_name] = job
-        logger.info(f"대안 데이터 수집 스케줄 등록", "add_alternative_job",
-                    {"job_id": job_name, "market": market})
-
-    def add_full_collect_job(self, job_model):
-        """전체 데이터 일괄 수집 + 피처 계산 크론 잡 등록 (가격→재무→거시→뉴스→공시→수급→대안→피처)"""
+    def _add_scheduled_job(self, job_model, steps=None):
+        """step 기반 통합 크론 잡 등록"""
         job_name = job_model.job_name
         cron_expr = job_model.cron_expr
         market = job_model.market or "KOSPI"
         sector = job_model.sector or None
         days_back = job_model.days_back or 7
-        include_alternative = getattr(job_model, "include_alternative", True)
 
-        def full_collect_job_func():
-            from services import scheduler_service
+        # step 데이터 직렬화 (ORM 세션 분리)
+        steps_data = [
+            {"step_type": s.step_type, "step_order": s.step_order,
+             "enabled": s.enabled, "config": s.get_config()}
+            for s in (steps or [])
+        ]
 
-            logger.info(f"일괄 수집 스케줄 시작", "full_collect_cron_job",
-                        {"job_id": job_name, "market": market, "sector": sector})
+        enabled_types = [s["step_type"] for s in steps_data if s["enabled"]]
+
+        def scheduled_job_func():
+            from services.scheduler_service import _execute_pipeline
+
+            logger.info(f"스케줄 잡 시작", "scheduled_job",
+                        {"job_id": job_name, "market": market, "steps": enabled_types})
 
             log_id = self._create_schedule_log(job_name)
 
             try:
-                result = scheduler_service._run_full_collect(market, days_back, sector, include_alternative=include_alternative)
+                result = _execute_pipeline(market, sector, days_back, steps_data)
 
                 self._update_schedule_log(log_id, {
                     "status": "success" if result.get("failed", 0) == 0 else "partial",
@@ -683,17 +318,17 @@ class JobScheduler:
                     "status": "failed",
                     "message": str(e)[:500],
                 })
-                logger.error(f"일괄 수집 스케줄 실패", "full_collect_cron_job",
-                             {"error": str(e)})
+                logger.error(f"스케줄 잡 실패", "scheduled_job",
+                             {"job_id": job_name, "error": str(e)})
 
         trigger = parse_cron_expr(cron_expr)
         job = self.scheduler.add_job(
-            full_collect_job_func, trigger=trigger, id=job_name,
+            scheduled_job_func, trigger=trigger, id=job_name,
             replace_existing=True, max_instances=1,
         )
         self._jobs[job_name] = job
-        logger.info(f"일괄 수집 스케줄 등록", "add_full_collect_job",
-                    {"job_id": job_name, "market": market})
+        logger.info(f"스케줄 잡 등록", "_add_scheduled_job",
+                    {"job_id": job_name, "market": market, "steps": enabled_types})
 
     def add_job_from_model(self, job_model):
         # DB ScheduleJob 모델에서 작업 등록
@@ -747,37 +382,17 @@ class JobScheduler:
             for job in self.scheduler.get_jobs()
         }
 
-    def _dispatch_job(self, job_model, ml_config=None):
-        """job_type별 올바른 등록 메서드 호출"""
-        job_type = getattr(job_model, "job_type", "data_collect")
-        dispatch = {
-            "ml_train": lambda: self.add_ml_train_job(job_model, ml_config),
-            "fundamental_collect": lambda: self.add_fundamental_job(job_model),
-            "market_investor_collect": lambda: self.add_market_investor_job(job_model),
-            "macro_collect": lambda: self.add_macro_job(job_model),
-            "news_collect": lambda: self.add_news_job(job_model),
-            "disclosure_collect": lambda: self.add_disclosure_job(job_model),
-            "supply_collect": lambda: self.add_supply_job(job_model),
-            "alternative_collect": lambda: self.add_alternative_job(job_model),
-            "full_collect": lambda: self.add_full_collect_job(job_model),
-        }
-        handler = dispatch.get(job_type)
-        if handler:
-            handler()
-        else:
-            self.add_job_from_model(job_model)
-
-    def sync_job(self, job_name: str, action: str = "add", job_model=None, ml_config=None):
+    def sync_job(self, job_name: str, action: str = "add", job_model=None, steps=None):
         if not self.scheduler.running:
             return
         try:
             if action == "remove":
                 self.remove_job(job_name)
             elif action == "add" and job_model and job_model.enabled:
-                self._dispatch_job(job_model, ml_config)
+                self._add_scheduled_job(job_model, steps=steps)
             elif action == "update":
                 self.remove_job(job_name)
                 if job_model and job_model.enabled:
-                    self._dispatch_job(job_model, ml_config)
+                    self._add_scheduled_job(job_model, steps=steps)
         except Exception as e:
             logger.warning(f"스케줄러 동기화 실패 ({action} {job_name}): {e}", "sync_job")

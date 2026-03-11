@@ -1,5 +1,5 @@
 from models.stock import StockPrice, StockInfo
-from models.schedule import ScheduleJob, ScheduleLog, MLTrainConfig
+from models.schedule import ScheduleJob, ScheduleLog, JobStep
 from models.ml import FeatureStore, MLModel, MLTrainingLog, MLPrediction
 from models.fundamental import StockFundamental, FinancialStatement, MarketInvestorTrading
 from models.macro import MacroIndicator
@@ -12,7 +12,7 @@ __all__ = [
     "StockInfo",
     "ScheduleJob",
     "ScheduleLog",
-    "MLTrainConfig",
+    "JobStep",
     "FeatureStore",
     "MLModel",
     "MLTrainingLog",

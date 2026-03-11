@@ -2,14 +2,14 @@
 스케줄러 레포지토리
 ===================
 
-ScheduleJob / ScheduleLog / MLTrainConfig CRUD
+ScheduleJob / ScheduleLog / JobStep CRUD
 """
 
-from datetime import datetime
+from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
-from models import ScheduleJob, ScheduleLog, MLTrainConfig
+from models import ScheduleJob, ScheduleLog, JobStep
 
 
 class SchedulerRepository:
@@ -48,33 +48,6 @@ class SchedulerRepository:
     def delete_job(self, job: ScheduleJob):
         self.session.delete(job)
 
-    # ── MLTrainConfig ──
-
-    def get_ml_config(self, job_id: int) -> MLTrainConfig | None:
-        return self.session.query(MLTrainConfig).filter(
-            MLTrainConfig.job_id == job_id
-        ).first()
-
-    def get_ml_configs_by_ids(self, job_ids: list[int]) -> dict[int, MLTrainConfig]:
-        if not job_ids:
-            return {}
-        configs = self.session.query(MLTrainConfig).filter(
-            MLTrainConfig.job_id.in_(job_ids)
-        ).all()
-        return {c.job_id: c for c in configs}
-
-    def create_ml_config(self, data: dict) -> MLTrainConfig:
-        config = MLTrainConfig(**data)
-        self.session.add(config)
-        self.session.flush()
-        return config
-
-    def update_ml_config(self, config: MLTrainConfig, data: dict) -> MLTrainConfig:
-        for key, val in data.items():
-            setattr(config, key, val)
-        self.session.flush()
-        return config
-
     # ── ScheduleLog ──
 
     def create_log(self, data: dict) -> ScheduleLog:
@@ -97,3 +70,34 @@ class SchedulerRepository:
         if job_id:
             query = query.filter(ScheduleLog.job_id == job_id)
         return query.order_by(ScheduleLog.started_at.desc()).limit(limit).all()
+
+    # ── JobStep ──
+
+    def get_steps_for_job(self, job_id: int) -> list[JobStep]:
+        return (self.session.query(JobStep)
+                .filter(JobStep.job_id == job_id)
+                .order_by(JobStep.step_order)
+                .all())
+
+    def get_steps_for_jobs(self, job_ids: list[int]) -> dict[int, list[JobStep]]:
+        if not job_ids:
+            return {}
+        rows = (self.session.query(JobStep)
+                .filter(JobStep.job_id.in_(job_ids))
+                .order_by(JobStep.step_order)
+                .all())
+        result = defaultdict(list)
+        for step in rows:
+            result[step.job_id].append(step)
+        return dict(result)
+
+    def replace_steps(self, job_id: int, steps_data: list[dict]) -> list[JobStep]:
+        self.session.query(JobStep).filter(JobStep.job_id == job_id).delete()
+        steps = []
+        for sd in steps_data:
+            sd["job_id"] = job_id
+            step = JobStep(**sd)
+            self.session.add(step)
+            steps.append(step)
+        self.session.flush()
+        return steps

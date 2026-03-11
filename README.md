@@ -14,7 +14,7 @@
 | ML | scikit-learn, XGBoost, LightGBM, Optuna |
 | NLP | transformers, KR-FinBert-SC (한국어 금융 센티먼트) |
 | Dashboard | Streamlit, Plotly |
-| Scheduling | APScheduler (full_collect 일괄 수집 지원) |
+| Scheduling | APScheduler (boolean 플래그 기반 파이프라인) |
 | Deploy | Docker, docker-compose |
 
 ## Architecture
@@ -23,10 +23,10 @@
 ┌───────────────────────────────────────────────────────────────────┐
 │                       EXTERNAL DATA SOURCES                       │
 ├──────────┬──────────┬───────────┬──────────┬──────────┬───────────┤
-│ yfinance │ FDR/FRED │  KIS API  │ DART API │  Naver   │    KRX    │
-│ (주가+    │ (KR3Y+   │ (펀더멘털+  │ (재무+공시) │  News    │  (수급:    │
-│  거시7)   │  거시3)   │  수급)     │           │(센티먼트)  │  KIS API) │
-└──────┬───┴────┬─────┴────┬─────┴────┬─────┴────┬─────┴─────┬──────┘
+│ yfinance │ FDR/FRED │  KIS API  │ DART API │  Naver   │    KRX    │  Google  │
+│ (주가+    │ (KR3Y+   │ (펀더멘털+  │ (재무+공시) │  News    │  (수급:    │  Trends  │
+│  거시7)   │  거시3)   │  수급)     │           │(센티먼트)  │  KIS API) │ +커뮤니티  │
+└──────┬───┴────┬─────┴────┬─────┴────┬─────┴────┬─────┴─────┬────┴─────┘
        └────────┴──────────┴──────────┴──────────┴───────────┘
                                 │
                 ┌───────────────┼───────────────┐
@@ -99,7 +99,7 @@
 [ PostgreSQL ]
  stock_price · stock_info · stock_fundamental
  financial_statement · macro_indicator · news_sentiment
- dart_disclosure · krx_supply_demand
+ dart_disclosure · krx_supply_demand · alternative_data
            │
            ▼
 [ Module 1: 데이터 분석 ]
@@ -208,6 +208,17 @@
 | `sector_news_sentiment` | 동일 섹터 전체 뉴스 평균 센티먼트 |
 
 > Phase 6는 2-pass 아키텍처로 동작: Pass 1에서 Phase 1~5 피처 계산 후 feature_store 저장, Pass 2에서 저장된 peer 데이터를 활용해 섹터/상대강도 피처를 계산합니다.
+
+### Phase 7 피처 상세
+
+| 피처명 | 소스 | 설명 |
+|--------|------|------|
+| `google_trend_score` | Google Trends | 트렌드 점수 (0~1 정규화) |
+| `google_trend_momentum` | Google Trends | 트렌드 모멘텀 (현재 vs 5일전) |
+| `community_post_volume` | 네이버 종목토론방 | 게시글 수 (log1p) |
+| `community_comment_volume` | 네이버 종목토론방 | 댓글 수 (log1p) |
+| `community_engagement_ratio` | 네이버 종목토론방 | 참여도 (댓글/게시글) |
+| `alternative_activity_index` | 통합 | 트렌드+커뮤니티 통합 활성도 (0~1) |
 
 ### Known Issues
 

@@ -8,7 +8,6 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
-    Float,
     ForeignKey,
     Integer,
     String,
@@ -24,15 +23,14 @@ class ScheduleJob(ModelBase):
     __tablename__ = "schedule_job"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    job_name = Column(String(50), unique=True, nullable=False)  # APScheduler 등록용
-    job_type = Column(String(20), nullable=False, default="data_collect")  # data_collect / ml_train
+    job_name = Column(String(50), unique=True, nullable=False)
     market = Column(String(10), nullable=False)
     sector = Column(String(50), nullable=True)
-    cron_expr = Column(String(100), nullable=False)  # 크론식: "0 18 * * *", "*/10 * * * *" 등
+    cron_expr = Column(String(100), nullable=False)
     days_back = Column(Integer, nullable=False, default=7)
     enabled = Column(Boolean, nullable=False, default=True)
     description = Column(String(200), nullable=True)
-    include_alternative = Column(Boolean, default=True)  # full_collect 전용: 대안 데이터 수집 포함 여부
+
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -44,6 +42,34 @@ class ScheduleJob(ModelBase):
         return f"<ScheduleJob({self.job_name} {self.market} [{self.cron_expr}])>"
 
 
+class JobStep(ModelBase):
+    """스케줄 잡의 파이프라인 단계 (정규화)"""
+
+    __tablename__ = "job_step"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(
+        Integer,
+        ForeignKey("schedule_job.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    step_type = Column(String(30), nullable=False)
+    step_order = Column(Integer, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    config = Column(String(2000), nullable=True)  # JSON
+
+    __table_args__ = (
+        UniqueConstraint("job_id", "step_type", name="uq_job_step_type"),
+    )
+
+    def get_config(self) -> dict | None:
+        import json
+        return json.loads(self.config) if self.config else None
+
+    def __repr__(self):
+        return f"<JobStep(job_id={self.job_id} {self.step_type} order={self.step_order})>"
+
+
 class ScheduleLog(ModelBase):
     """스케줄 실행 이력"""
 
@@ -51,68 +77,15 @@ class ScheduleLog(ModelBase):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(Integer, ForeignKey("schedule_job.id", ondelete="CASCADE"), nullable=False)
-    status = Column(String(20), nullable=False, default="running")  # running / success / failed
+    status = Column(String(20), nullable=False, default="running")
     started_at = Column(DateTime, nullable=False, default=datetime.now)
     finished_at = Column(DateTime, nullable=True)
     total_codes = Column(Integer, default=0)
     success_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
     db_saved_count = Column(Integer, default=0)
-    trigger_by = Column(String(20), nullable=False, default="manual")  # manual / scheduler
+    trigger_by = Column(String(20), nullable=False, default="manual")
     message = Column(String(500), nullable=True)
 
     def __repr__(self):
         return f"<ScheduleLog(job_id={self.job_id} {self.status} {self.started_at})>"
-
-
-class MLTrainConfig(ModelBase):
-    """ML 학습 스케줄 전용 설정 (schedule_job 1:1 확장)"""
-
-    __tablename__ = "ml_train_config"
-
-    job_id = Column(
-        Integer,
-        ForeignKey("schedule_job.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    markets = Column(
-        String(200), nullable=False, default='["KOSPI", "KOSDAQ"]'
-    )  # JSON 배열
-    algorithms = Column(
-        String(200), nullable=False,
-        default='["random_forest", "xgboost", "lightgbm"]'
-    )  # JSON 배열
-    target_days = Column(
-        String(100), nullable=False, default='[1, 5]'
-    )  # JSON 배열
-    # 파이프라인 스텝 플래그 (Step 1~4)
-    include_price_collect = Column(
-        Boolean, nullable=False, default=False
-    )  # Step 1: 가격 데이터 수집
-    include_kis_collect = Column(
-        Boolean, nullable=False, default=False
-    )  # Step 2: KIS 기초정보 수집
-    include_dart_collect = Column(
-        Boolean, nullable=False, default=False
-    )  # Step 3: DART 재무제표 수집
-    include_feature_compute = Column(
-        Boolean, nullable=False, default=True
-    )  # Step 4: 피처 계산
-    optuna_trials = Column(
-        Integer, nullable=False, default=50
-    )
-
-    def get_markets(self) -> list[str]:
-        import json
-        return json.loads(self.markets)
-
-    def get_algorithms(self) -> list[str]:
-        import json
-        return json.loads(self.algorithms)
-
-    def get_target_days(self) -> list[int]:
-        import json
-        return json.loads(self.target_days)
-
-    def __repr__(self):
-        return f"<MLTrainConfig(job_id={self.job_id} markets={self.markets})>"

@@ -67,7 +67,7 @@
 |-----|------|------|------|
 | 0 | 데이터 수집 | 주가, 펀더멘털, 거시경제, 뉴스, DART 공시, KRX 수급 | ✅ 완료 |
 | 1 | 데이터 분석 | 뉴스 NLP (KR-FinBert-SC), DART 공시 센티먼트, 대안* | 🔶 부분 |
-| 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~5 피처 생성 (59/64~66) | 🔶 부분 |
+| 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~6 피처 생성 (69) | 🔶 부분 |
 | 3 | 머신러닝 | RF / XGBoost / LightGBM, Optuna 튜닝 | ✅ 완료 |
 | 4 | 딥러닝 | LSTM, Transformer, 강화학습 | 🔲 예정 |
 | 5 | 백테스팅/포트폴리오 | 전략 검증, 포트폴리오 최적화 | 🔲 예정 |
@@ -107,7 +107,7 @@
            │
            ▼
 [ Module 2: 피처 엔지니어링 ]
- Phase1~5(59) + Phase6~7(+5~7*) = 64~66 Features
+ Phase1~6(69) + Phase7(+2~3*) = 71~72 Features
            │
            ▼
 [ feature_store ]
@@ -142,9 +142,9 @@
 | 3     | 거시경제           | +11    | ✅   |
 | 4     | 뉴스 센티먼트       | +5     | ✅   |
 | 5     | DART 공시 + 수급   | +10    | ✅   |
-| 6     | 섹터/상대강도       | +2~4   | 🔲   |
+| 6     | 섹터/상대강도 + 뉴스 정제 | +10    | ✅   |
 | 7     | 대안 데이터         | +2~3   | 🔲   |
-|       | **합계 (현재 59)** | **64~66** |  |
+|       | **합계 (현재 69)** | **71~72** |  |
 
 ### Phase 5 피처 상세
 
@@ -185,10 +185,34 @@
 | `frgn_ntby_qty` / `prsn_ntby_qty` / `orgn_ntby_qty` | 외국인/개인/기관 순매수 수량 |
 | `frgn_ntby_tr_pbmn` / `prsn_ntby_tr_pbmn` / `orgn_ntby_tr_pbmn` | 외국인/개인/기관 순매수 거래대금 |
 
-### Known Issues (Phase 6에서 개선)
+### Phase 6 피처 상세
 
-- **뉴스 센티먼트 종목/시장 구분 문제**: 현재 네이버 검색 키워드 기반으로 `code` 할당. "삼성전자 주가"로 검색 시 시장 기사·섹터 기사도 `code="005930"`으로 저장되어 종목 센티먼트와 시장 센티먼트가 혼재됨. 같은 기사가 시장 키워드로도 수집되면 `code=NULL`로 중복 저장 → 이중 카운팅 발생 가능.
-- **종목 간 뉴스 상관관계 미반영**: 하이닉스 피처 계산 시 삼성전자 뉴스 미반영 (동일 섹터 영향 무시). Phase 6 섹터/상대강도에서 섹터 평균 센티먼트 등으로 개선 예정.
+**Phase 6A — 섹터/상대강도 (7피처)**
+
+| 피처명 | 설명 |
+|--------|------|
+| `sector_return_1d` | 동일 섹터 종목 평균 1일 수익률 |
+| `sector_return_5d` | 동일 섹터 종목 평균 5일 수익률 |
+| `relative_strength_1d` | 종목 1일 수익률 − 섹터 평균 (상대강도) |
+| `relative_strength_5d` | 종목 5일 수익률 − 섹터 평균 |
+| `relative_strength_20d` | 종목 20일 수익률 − 섹터 평균 |
+| `sector_momentum_rank` | 섹터 내 모멘텀 순위 (0~1 정규화) |
+| `sector_breadth` | 섹터 내 상승 종목 비율 |
+
+**Phase 6B — 뉴스 센티먼트 정제 (3피처)**
+
+| 피처명 | 설명 |
+|--------|------|
+| `news_relevance_ratio` | 종목 직접 관련 뉴스 비율 (종목 뉴스 / 전체 뉴스) |
+| `news_sentiment_filtered` | 직접 관련 뉴스만으로 재계산한 센티먼트 |
+| `sector_news_sentiment` | 동일 섹터 전체 뉴스 평균 센티먼트 |
+
+> Phase 6는 2-pass 아키텍처로 동작: Pass 1에서 Phase 1~5 피처 계산 후 feature_store 저장, Pass 2에서 저장된 peer 데이터를 활용해 섹터/상대강도 피처를 계산합니다.
+
+### Known Issues
+
+- **뉴스 센티먼트 종목/시장 구분 문제**: 네이버 검색 키워드 기반 `code` 할당으로 종목 센티먼트와 시장 센티먼트가 혼재. Phase 6B `news_relevance_ratio`로 직접 관련 뉴스를 필터링하여 부분 개선됨.
+- **종목 간 뉴스 상관관계**: Phase 6B `sector_news_sentiment`로 동일 섹터 뉴스 평균을 피처로 반영하여 개선됨.
 
 ## Project Structure
 
@@ -218,7 +242,7 @@ AI_Finance/
 │   │   └── scheduler.py          # APScheduler 잡 관리
 │   ├── indicators/               # 기술적 지표 계산
 │   ├── ml/                       # Module 2~3: 피처/ML
-│   │   ├── feature_engineer.py   # 피처 엔지니어링 (Phase 1~5)
+│   │   ├── feature_engineer.py   # 피처 엔지니어링 (Phase 1~6)
 │   │   ├── trainer.py            # 모델 학습
 │   │   ├── predictor.py          # 예측 실행
 │   │   ├── tuner.py              # Optuna 하이퍼파라미터
@@ -360,7 +384,7 @@ GET  /admin/health                    # 헬스체크
 - [x] Phase 4.5 — 뉴스 센티먼트 대시보드 (사용자: 센티먼트 분석, 관리자: 수집/조회/현황)
 - [x] Phase 5 — DART 공시 + KRX 수급 데이터 (KIS API, 59피처) + 어드민 대시보드
 - [x] Phase 5.5 — 시장 수급 데이터 확장 (투자자별 거래대금 + 시장 전체 매매동향) + 일괄 수집 스케줄러
-- [ ] Phase 6 — 데이터 개선: 섹터/상대강도 + 뉴스 센티먼트 정제
+- [x] Phase 6 — 데이터 개선: 섹터/상대강도 + 뉴스 센티먼트 정제 (69피처, 2-pass 아키텍처)
 - [ ] Phase 7 — 대안 데이터 (Google Trends, 커뮤니티 활성도)
 - [ ] Phase 8 — 리포트 생성 + 구독 서비스 (LLM 시장 분석 + 이메일/카카오톡/Slack 발송)
 - [ ] Phase 9 — 백테스팅 + 포트폴리오 최적화

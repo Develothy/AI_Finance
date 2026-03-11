@@ -67,7 +67,7 @@
 |-----|------|------|------|
 | 0 | 데이터 수집 | 주가, 펀더멘털, 거시경제, 뉴스, DART 공시, KRX 수급 | ✅ 완료 |
 | 1 | 데이터 분석 | 뉴스 NLP (KR-FinBert-SC), DART 공시 센티먼트, 대안* | 🔶 부분 |
-| 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~6 피처 생성 (69) | 🔶 부분 |
+| 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~7 피처 생성 (75) | ✅ 완료 |
 | 3 | 머신러닝 | RF / XGBoost / LightGBM, Optuna 튜닝 | ✅ 완료 |
 | 4 | 딥러닝 | LSTM, Transformer, 강화학습 | 🔲 예정 |
 | 5 | 백테스팅/포트폴리오 | 전략 검증, 포트폴리오 최적화 | 🔲 예정 |
@@ -107,7 +107,7 @@
            │
            ▼
 [ Module 2: 피처 엔지니어링 ]
- Phase1~6(69) + Phase7(+2~3*) = 71~72 Features
+ Phase1~7(75) Features — 2-Pass 아키텍처
            │
            ▼
 [ feature_store ]
@@ -133,7 +133,7 @@
 * = 개발 예정
 ```
 
-## Feature Engineering (7-Phase)
+## [M2] Feature Engineering (7-Phase)
 
 | Phase | 카테고리           | 피처 수 | 상태 |
 |-------|-------------------|--------|------|
@@ -143,8 +143,8 @@
 | 4     | 뉴스 센티먼트       | +5     | ✅   |
 | 5     | DART 공시 + 수급   | +10    | ✅   |
 | 6     | 섹터/상대강도 + 뉴스 정제 | +10    | ✅   |
-| 7     | 대안 데이터         | +2~3   | 🔲   |
-|       | **합계 (현재 69)** | **71~72** |  |
+| 7     | 대안 데이터         | +6     | ✅   |
+|       | **합계**           | **75** |  |
 
 ### Phase 5 피처 상세
 
@@ -245,7 +245,7 @@ AI_Finance/
 │   │   └── scheduler.py          # APScheduler 잡 관리 (JobScheduler)
 │   ├── indicators/               # 기술적 지표 계산
 │   ├── ml/                       # Module 2~3: 피처/ML
-│   │   ├── feature_engineer.py   # 피처 엔지니어링 (Phase 1~6)
+│   │   ├── feature_engineer.py   # 피처 엔지니어링 (Phase 1~7, 2-Pass)
 │   │   ├── trainer.py            # 모델 학습
 │   │   ├── predictor.py          # 예측 실행
 │   │   ├── tuner.py              # Optuna 하이퍼파라미터
@@ -388,7 +388,7 @@ GET  /admin/health                    # 헬스체크
 - [x] Phase 5 — DART 공시 + KRX 수급 데이터 (KIS API, 59피처) + 어드민 대시보드
 - [x] Phase 5.5 — 시장 수급 데이터 확장 (투자자별 거래대금 + 시장 전체 매매동향) + 일괄 수집 스케줄러
 - [x] Phase 6 — 데이터 개선: 섹터/상대강도 + 뉴스 센티먼트 정제 (69피처, 2-pass 아키텍처)
-- [ ] Phase 7 — 대안 데이터 (Google Trends, 커뮤니티 활성도)
+- [x] Phase 7 — 대안 데이터 (Google Trends, 커뮤니티 활성도, 75피처)
 - [ ] Phase 8 — 리포트 생성 + 구독 서비스 (LLM 시장 분석 + 이메일/카카오톡/Slack 발송)
 - [ ] Phase 9 — 백테스팅 + 포트폴리오 최적화
 - [ ] Phase 10 — 딥러닝 (LSTM, Transformer, 강화학습)

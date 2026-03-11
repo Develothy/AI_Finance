@@ -253,16 +253,10 @@ class FundamentalService:
     @staticmethod
     def _get_stock_codes(market: str) -> list[str]:
         """DB에서 마켓별 종목 코드 조회"""
-        from models import StockInfo
+        from repositories import StockRepository
 
         with database.session() as session:
-            codes = [
-                r[0] for r in
-                session.query(StockInfo.code)
-                .filter(StockInfo.market == market)
-                .all()
-            ]
-        return codes
+            return StockRepository(session).get_codes_by_market(market)
 
     @staticmethod
     def _fundamental_to_dict(f) -> dict:

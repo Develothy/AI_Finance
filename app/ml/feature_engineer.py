@@ -19,6 +19,7 @@ from repositories import MLRepository
 from repositories.stock_repository import StockRepository
 from repositories.news_repository import NewsRepository
 from repositories.disclosure_repository import DisclosureRepository
+from repositories.alternative_repository import AlternativeRepository
 
 # SMA60이 가장 긴 lookback → 캘린더일 120일 ≈ 영업일 80일
 _LOOKBACK_CALENDAR_DAYS = 120
@@ -81,6 +82,19 @@ _SECTOR_FEATURE_COLUMNS = [
 # Phase 6B 뉴스 정제 피처 내부 상수
 _NEWS_REFINED_FEATURE_COLUMNS = [
     "news_relevance_ratio", "news_sentiment_filtered", "sector_news_sentiment",
+]
+
+# Phase 7 피처 컬럼 (Phase 6 + 대안 데이터)
+PHASE7_FEATURE_COLUMNS = PHASE6_FEATURE_COLUMNS + [
+    "google_trend_score", "google_trend_momentum",
+    "community_post_volume", "community_comment_volume",
+    "community_engagement_ratio", "alternative_activity_index",
+]
+
+_ALTERNATIVE_FEATURE_COLUMNS = [
+    "google_trend_score", "google_trend_momentum",
+    "community_post_volume", "community_comment_volume",
+    "community_engagement_ratio", "alternative_activity_index",
 ]
 
 # indicator_name → feature_store 컬럼명 매핑
@@ -154,22 +168,21 @@ class FeatureEngineer:
                     last_date = last_feature.date
 
             # 1. StockPrice 조회
-            query = session.query(StockPrice).filter(
-                StockPrice.market == market,
-                StockPrice.code == code,
-            )
+            from repositories import StockRepository
+            stock_repo = StockRepository(session)
 
+            price_start = None
             if last_date:
-                # 증분: lookback 구간부터 조회
                 lookback_start = last_date - timedelta(days=_LOOKBACK_CALENDAR_DAYS)
-                query = query.filter(StockPrice.date >= lookback_start)
+                price_start = str(lookback_start)
             elif start_date:
-                query = query.filter(StockPrice.date >= start_date)
+                price_start = str(start_date)
 
-            if end_date:
-                query = query.filter(StockPrice.date <= end_date)
-
-            rows = query.order_by(StockPrice.date).all()
+            rows = stock_repo.get_prices(
+                code=code, market=market,
+                start_date=price_start,
+                end_date=str(end_date) if end_date else None,
+            )
 
             if len(rows) < 60:
                 logger.warning(
@@ -224,7 +237,12 @@ class FeatureEngineer:
                 features_df, market, code, session,
             )
 
-            # 3.10 섹터/상대강도 피처 병합 (Phase 6A)
+            # 3.10 대안 데이터 피처 병합 (Phase 7)
+            features_df = self._merge_alternative_features(
+                features_df, market, code, session,
+            )
+
+            # 3.11 섹터/상대강도 피처 병합 (Phase 6A)
             # 3.11 뉴스 정제 피처 병합 (Phase 6B)
             # compute_all()에서는 include_phase6=False로 Pass 1 수행 후
             # Pass 2에서 _compute_phase6_only()로 별도 처리
@@ -297,15 +315,10 @@ class FeatureEngineer:
             {"total": N, "success": N, "failed": N, "skipped": N}
         """
         if codes is None:
-            from models import StockInfo
+            from repositories import StockRepository
 
             with database.session() as session:
-                codes = [
-                    r[0] for r in
-                    session.query(StockInfo.code)
-                    .filter(StockInfo.market == market)
-                    .all()
-                ]
+                codes = StockRepository(session).get_codes_by_market(market)
 
         if not codes:
             logger.warning(f"종목 없음: {market}", "compute_all")
@@ -394,20 +407,9 @@ class FeatureEngineer:
 
         # Phase 6 미계산 종목 추가 (sector_return_1d가 NULL인 종목)
         with database.session() as session:
-            from models import FeatureStore
+            from repositories import MLRepository
 
-            # Phase 6 데이터가 하나도 없는 종목코드 조회
-            codes_with_phase6 = set(
-                r[0] for r in
-                session.query(FeatureStore.code)
-                .filter(
-                    FeatureStore.market == market,
-                    FeatureStore.code.in_(all_codes),
-                    FeatureStore.sector_return_1d.isnot(None),
-                )
-                .distinct()
-                .all()
-            )
+            codes_with_phase6 = MLRepository(session).get_codes_with_phase6(market, all_codes)
 
             for code in all_codes:
                 if code not in codes_with_phase6:
@@ -498,15 +500,9 @@ class FeatureEngineer:
         3) 데이터 없으면 NULL 유지 (graceful)
         """
         # --- 1) KIS 기초정보 병합 ---
-        fund_rows = (
-            session.query(StockFundamental)
-            .filter(
-                StockFundamental.market == market,
-                StockFundamental.code == code,
-            )
-            .order_by(StockFundamental.date)
-            .all()
-        )
+        from repositories import FundamentalRepository
+        fund_repo = FundamentalRepository(session)
+        fund_rows = fund_repo.get_fundamentals(market=market, code=code)
 
         if fund_rows:
             fund_df = pd.DataFrame([{
@@ -528,15 +524,7 @@ class FeatureEngineer:
                     df[col] = None
 
         # --- 2) DART 재무제표 병합 (forward-fill) ---
-        stmt_rows = (
-            session.query(FinancialStatement)
-            .filter(
-                FinancialStatement.market == market,
-                FinancialStatement.code == code,
-            )
-            .order_by(FinancialStatement.period_date)
-            .all()
-        )
+        stmt_rows = fund_repo.get_financial_statements_for_features(market=market, code=code)
 
         if stmt_rows:
             stmt_df = pd.DataFrame([{
@@ -579,13 +567,9 @@ class FeatureEngineer:
         min_date = df["date"].min()
         max_date = df["date"].max()
 
-        macro_rows = (
-            session.query(MacroIndicator)
-            .filter(
-                MacroIndicator.date >= min_date,
-                MacroIndicator.date <= max_date,
-            )
-            .all()
+        from repositories import MacroRepository
+        macro_rows = MacroRepository(session).get_all_by_date_range(
+            start_date=str(min_date), end_date=str(max_date),
         )
 
         if macro_rows:
@@ -1048,6 +1032,108 @@ class FeatureEngineer:
 
         # 컬럼 보장
         for col in _NEWS_REFINED_FEATURE_COLUMNS:
+            if col not in df.columns:
+                df[col] = None
+
+        return df
+
+    # ============================================================
+    # Phase 7: 대안 데이터 피처
+    # ============================================================
+
+    def _merge_alternative_features(
+        self,
+        df: pd.DataFrame,
+        market: str,
+        code: str,
+        session,
+    ) -> pd.DataFrame:
+        """
+        대안 데이터 피처를 기존 피처 DataFrame에 병합 (Phase 7)
+
+        google_trend_score: 트렌드 점수 (0~1 정규화)
+        google_trend_momentum: 현재 vs 5일전 변화율
+        community_post_volume: 게시글 수 (log1p)
+        community_comment_volume: 댓글 수 (log1p)
+        community_engagement_ratio: 댓글/게시글
+        alternative_activity_index: 트렌드+커뮤니티 합산 (0~1)
+        """
+        if df.empty:
+            for col in _ALTERNATIVE_FEATURE_COLUMNS:
+                df[col] = None
+            return df
+
+        min_date = df["date"].min()
+        max_date = df["date"].max()
+        lookback_start = min_date - timedelta(days=10)
+
+        repo = AlternativeRepository(session)
+        alt_rows = repo.get_alternative_for_features(market, code, lookback_start, max_date)
+
+        if not alt_rows:
+            for col in _ALTERNATIVE_FEATURE_COLUMNS:
+                df[col] = None
+            return df
+
+        alt_df = pd.DataFrame([{
+            "date": r.date,
+            "trend_interp": float(r.google_trend_interpolated) if r.google_trend_interpolated else None,
+            "post_count": int(r.community_post_count) if r.community_post_count else None,
+            "comment_count": int(r.community_comment_count) if r.community_comment_count else None,
+        } for r in alt_rows])
+
+        # 1) google_trend_score: 0~100 → 0~1
+        alt_df["google_trend_score"] = alt_df["trend_interp"] / 100.0
+
+        # 2) google_trend_momentum: (현재 - 5일전) / max(5일전, 1)
+        shifted = alt_df["trend_interp"].shift(5)
+        alt_df["google_trend_momentum"] = (
+            (alt_df["trend_interp"] - shifted) / shifted.clip(lower=1.0)
+        )
+
+        # 3) community_post_volume: log1p
+        alt_df["community_post_volume"] = np.log1p(alt_df["post_count"].fillna(0))
+        alt_df.loc[alt_df["post_count"].isna(), "community_post_volume"] = None
+
+        # 4) community_comment_volume: log1p
+        alt_df["community_comment_volume"] = np.log1p(alt_df["comment_count"].fillna(0))
+        alt_df.loc[alt_df["comment_count"].isna(), "community_comment_volume"] = None
+
+        # 5) community_engagement_ratio: 댓글/게시글
+        alt_df["community_engagement_ratio"] = None
+        valid_posts = alt_df["post_count"].notna() & (alt_df["post_count"] > 0)
+        alt_df.loc[valid_posts, "community_engagement_ratio"] = (
+            alt_df.loc[valid_posts, "comment_count"].fillna(0)
+            / alt_df.loc[valid_posts, "post_count"]
+        )
+
+        # 6) alternative_activity_index: 0.5*trend + 0.5*community
+        trend_norm = alt_df["google_trend_score"]  # 이미 0~1
+        post_vol = alt_df["community_post_volume"]
+        post_max = post_vol.max() if post_vol.notna().any() else 1.0
+        post_norm = post_vol / post_max if post_max and post_max > 0 else post_vol * 0
+
+        both = trend_norm.notna() & post_norm.notna()
+        trend_only = trend_norm.notna() & post_norm.isna()
+        post_only = trend_norm.isna() & post_norm.notna()
+
+        alt_df["alternative_activity_index"] = None
+        alt_df.loc[both, "alternative_activity_index"] = (
+            0.5 * trend_norm[both] + 0.5 * post_norm[both]
+        )
+        alt_df.loc[trend_only, "alternative_activity_index"] = trend_norm[trend_only]
+        alt_df.loc[post_only, "alternative_activity_index"] = post_norm[post_only]
+
+        # 반올림 + 병합
+        merge_cols = ["date"] + _ALTERNATIVE_FEATURE_COLUMNS
+        alt_result = alt_df[merge_cols].copy()
+        for col in _ALTERNATIVE_FEATURE_COLUMNS:
+            if col in alt_result.columns:
+                alt_result[col] = alt_result[col].round(4)
+
+        df = df.merge(alt_result, on="date", how="left")
+
+        for col in _ALTERNATIVE_FEATURE_COLUMNS:
             if col not in df.columns:
                 df[col] = None
 

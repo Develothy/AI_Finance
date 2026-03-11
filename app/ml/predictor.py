@@ -102,15 +102,10 @@ class Predictor:
         Returns:
             {"total": N, "predicted": N, "failed": N, "signals": {"BUY": N, "SELL": N, "HOLD": N}}
         """
-        from models import StockInfo
+        from repositories import StockRepository
 
         with database.session() as session:
-            codes = [
-                r[0] for r in
-                session.query(StockInfo.code)
-                .filter(StockInfo.market == market)
-                .all()
-            ]
+            codes = StockRepository(session).get_codes_by_market(market)
 
         if not codes:
             return {"total": 0, "predicted": 0, "failed": 0, "signals": {}}
@@ -214,8 +209,8 @@ class Predictor:
             "model_id": ml_model.id,
             "model_name": ml_model.model_name,
             "algorithm": ml_model.algorithm,
-            "prediction_date": prediction_date,
-            "target_date": target_date,
+            "prediction_date": str(prediction_date),
+            "target_date": str(target_date),
             "predicted_class": predicted_class,
             "probability_up": round(probability_up, 4),
             "probability_down": round(probability_down, 4),

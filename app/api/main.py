@@ -22,16 +22,16 @@ database.create_tables()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 스케줄러 관리"""
-    from data_collector import DataScheduler, SCHEDULER_AVAILABLE
+    from scheduler import JobScheduler, SCHEDULER_AVAILABLE
 
     if SCHEDULER_AVAILABLE:
-        scheduler = DataScheduler.get_instance()
+        scheduler = JobScheduler.get_instance()
         scheduler.load_jobs_from_db()
         scheduler.start()
         logger.info("스케줄러 시작 (API 서버 내장)")
     yield
     if SCHEDULER_AVAILABLE:
-        scheduler = DataScheduler.get_instance()
+        scheduler = JobScheduler.get_instance()
         scheduler.stop()
         logger.info("스케줄러 종료")
 

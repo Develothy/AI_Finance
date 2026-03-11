@@ -157,3 +157,21 @@ class StockRepository:
             StockInfo.market == market,
         ).all()
         return [r[0] for r in rows]
+
+    def get_codes_by_market(self, market: str) -> list[str]:
+        """마켓별 종목 코드 목록 (KR이면 KOSPI+KOSDAQ)"""
+        query = self.session.query(StockInfo.code)
+        if market == "KR":
+            query = query.filter(StockInfo.market.in_(["KOSPI", "KOSDAQ"]))
+        else:
+            query = query.filter(StockInfo.market == market)
+        return [r[0] for r in query.all()]
+
+    def get_codes_with_names(self, market: str) -> list[tuple[str, str]]:
+        """마켓별 (code, name) 목록 (KR이면 KOSPI+KOSDAQ)"""
+        query = self.session.query(StockInfo.code, StockInfo.name)
+        if market == "KR":
+            query = query.filter(StockInfo.market.in_(["KOSPI", "KOSDAQ"]))
+        else:
+            query = query.filter(StockInfo.market == market)
+        return [(r.code, r.name) for r in query.all()]

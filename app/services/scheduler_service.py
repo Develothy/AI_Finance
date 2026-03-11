@@ -13,7 +13,7 @@ from typing import Optional
 from api.schemas import ScheduleJobRequest, ScheduleJobResponse, ScheduleLogResponse
 from core import get_logger
 from db import database
-from data_collector import DataScheduler, SCHEDULER_AVAILABLE
+from scheduler import JobScheduler, SCHEDULER_AVAILABLE
 from repositories.scheduler_repository import SchedulerRepository
 
 logger = get_logger("scheduler_service")
@@ -27,7 +27,7 @@ class SchedulerService:
         with database.session() as session:
             repo = SchedulerRepository(session)
             jobs = repo.get_all_jobs()
-            scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
+            scheduler = JobScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
             next_runs = scheduler.get_next_runs() if scheduler else {}
 
             ml_job_ids = [j.id for j in jobs if getattr(j, "job_type", "") == "ml_train"]
@@ -46,7 +46,7 @@ class SchedulerService:
                 from fastapi import HTTPException
                 raise HTTPException(status_code=409, detail=f"이미 존재하는 job_name: {req.job_name}")
 
-            job = repo.create_job({
+            job_data = {
                 "job_name": req.job_name,
                 "job_type": req.job_type,
                 "market": req.market,
@@ -55,7 +55,10 @@ class SchedulerService:
                 "days_back": req.days_back,
                 "enabled": req.enabled,
                 "description": req.description,
-            })
+            }
+            if req.job_type == "full_collect":
+                job_data["include_alternative"] = req.fc_include_alternative
+            job = repo.create_job(job_data)
 
             ml_config = None
             if req.job_type == "ml_train":
@@ -71,7 +74,7 @@ class SchedulerService:
                     "optuna_trials": req.ml_optuna_trials,
                 })
 
-            scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
+            scheduler = JobScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
             if scheduler:
                 scheduler.sync_job(job.job_name, "add", job, ml_config=ml_config)
             return ScheduleJobResponse.from_model(job)
@@ -91,7 +94,7 @@ class SchedulerService:
                     from fastapi import HTTPException
                     raise HTTPException(status_code=409, detail=f"이미 존재하는 job_name: {req.job_name}")
 
-            repo.update_job(job, {
+            update_data = {
                 "job_name": req.job_name,
                 "job_type": req.job_type,
                 "market": req.market,
@@ -100,7 +103,10 @@ class SchedulerService:
                 "days_back": req.days_back,
                 "enabled": req.enabled,
                 "description": req.description,
-            })
+            }
+            if req.job_type == "full_collect":
+                update_data["include_alternative"] = req.fc_include_alternative
+            repo.update_job(job, update_data)
 
             ml_config = None
             if req.job_type == "ml_train":
@@ -121,7 +127,7 @@ class SchedulerService:
                     ml_data["job_id"] = job.id
                     ml_config = repo.create_ml_config(ml_data)
 
-            scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
+            scheduler = JobScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
             if scheduler:
                 scheduler.sync_job(old_job_name, "remove")
                 scheduler.sync_job(job.job_name, "add", job, ml_config=ml_config)
@@ -137,7 +143,7 @@ class SchedulerService:
             job_name = job.job_name
             repo.delete_job(job)
 
-        scheduler = DataScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
+        scheduler = JobScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
         if scheduler:
             scheduler.sync_job(job_name, "remove")
         return {"deleted": True, "id": job_id, "job_name": job_name}
@@ -157,6 +163,7 @@ class SchedulerService:
             job_days_back = job.days_back
             job_market = job.market
             job_sector = job.sector
+            job_include_alternative = getattr(job, "include_alternative", True)
 
             # ML 전용 설정
             ml_markets = None
@@ -194,7 +201,7 @@ class SchedulerService:
         else:
             thread = threading.Thread(
                 target=self._run_job_by_type,
-                args=(log_id, job_type, job_market, job_sector, job_days_back),
+                args=(log_id, job_type, job_market, job_sector, job_days_back, job_include_alternative),
                 daemon=True,
             )
         thread.start()
@@ -225,7 +232,7 @@ class SchedulerService:
 
     # ── 내부 실행 로직 (백그라운드 스레드) ──
 
-    def _run_job_by_type(self, log_id: int, job_type: str, market: str, sector: str, days_back: int):
+    def _run_job_by_type(self, log_id: int, job_type: str, market: str, sector: str, days_back: int, include_alternative: bool = True):
         """job_type별 서비스 호출 + ScheduleLog 업데이트"""
         try:
             if job_type == "fundamental_collect":
@@ -253,8 +260,12 @@ class SchedulerService:
                 from services import DisclosureService
                 result = DisclosureService().collect_supply_demand(market=market, days=days_back or 60)
 
+            elif job_type == "alternative_collect":
+                from services import AlternativeService
+                result = AlternativeService().collect_all(market=market, days=days_back or 90)
+
             elif job_type == "full_collect":
-                result = self._run_full_collect(market, days_back, sector)
+                result = self._run_full_collect(market, days_back, sector, include_alternative=include_alternative)
 
             else:
                 from services import StockService
@@ -329,7 +340,7 @@ class SchedulerService:
                         "message": str(e)[:500],
                     })
 
-    def _run_full_collect(self, market: str, days_back: int, sector: str = None) -> dict:
+    def _run_full_collect(self, market: str, days_back: int, sector: str = None, include_alternative: bool = True) -> dict:
         """전체 데이터 일괄 수집 + 피처 계산 (sector 지정 시 해당 섹터만)"""
         from services import StockService, FundamentalService, MacroService
         from services import NewsService, DisclosureService
@@ -364,14 +375,10 @@ class SchedulerService:
             return {"saved": 0, "failed": 1, "success": 0, "message": "대상 종목 없음"}
 
         # target_codes로 (code, name) 매핑 (뉴스용)
-        from models import StockInfo
+        from repositories import StockRepository
         with database.session() as session:
-            code_names = [
-                (r.code, r.name) for r in
-                session.query(StockInfo.code, StockInfo.name)
-                .filter(StockInfo.market == market, StockInfo.code.in_(target_codes))
-                .all()
-            ]
+            all_code_names = StockRepository(session).get_codes_with_names(market)
+            code_names = [(c, n) for c, n in all_code_names if c in target_codes]
 
         logger.info(f"일괄수집 대상: {len(target_codes)}종목 (sector={sector})", "_run_full_collect")
 
@@ -421,7 +428,22 @@ class SchedulerService:
             steps.append(f"수급: 실패({e})")
             total_failed += 1
 
-        # 7) 피처 계산 — target_codes만
+        # 7) 대안 데이터 — target_codes만 (선택적)
+        if include_alternative:
+            try:
+                from services import AlternativeService
+                code_names_for_alt = [(c, n) for c, n in code_names if c in target_codes]
+                code_only_for_alt = [c for c, _ in code_names_for_alt]
+                r = AlternativeService().collect_trends(market=market, codes=code_names_for_alt, days=days_back or 90)
+                r2 = AlternativeService().collect_community(market=market, codes=code_only_for_alt, days=min(days_back or 30, 30))
+                alt_saved = r.get("saved", 0) + r2.get("saved", 0)
+                total_saved += alt_saved
+                steps.append(f"대안: {alt_saved}건")
+            except Exception as e:
+                steps.append(f"대안: 실패({e})")
+                total_failed += 1
+
+        # 8) 피처 계산 — target_codes만
         try:
             from ml.feature_engineer import FeatureEngineer
             feat_result = FeatureEngineer().compute_all(market=market, codes=target_codes)
@@ -432,7 +454,7 @@ class SchedulerService:
             steps.append(f"피처: 실패({e})")
             total_failed += 1
 
-        total_steps = 7
+        total_steps = 8 if include_alternative else 7
         msg = " | ".join(steps)
         return {
             "saved": total_saved,

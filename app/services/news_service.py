@@ -29,7 +29,7 @@ class NewsService:
     def collect(
         self,
         market: str = "KR",
-        codes: list[tuple[str, str]] = None,
+        codes: list = None,
         include_market_news: bool = True,
         max_items_per_code: int = 50,
     ) -> dict:
@@ -38,10 +38,13 @@ class NewsService:
 
         Args:
             market: KR
-            codes: [(code, name), ...] 리스트 (None이면 DB에서 전체 조회)
+            codes: [(code, name), ...] 또는 [[code, name], ...] (None이면 DB에서 전체 조회)
             include_market_news: 시장 전체 뉴스 포함 여부
             max_items_per_code: 종목당 최대 뉴스 건수
         """
+        # [[code, name], ...] → [(code, name), ...] 변환
+        if codes is not None:
+            codes = [(c[0], c[1]) for c in codes]
         if not self.fetcher.available:
             return {
                 "total_codes": 0,
@@ -157,19 +160,10 @@ class NewsService:
 
     @staticmethod
     def _get_stock_codes_with_names(market: str) -> list[tuple[str, str]]:
-        from models import StockInfo
-
-        # "KR" → KOSPI + KOSDAQ 전체 조회
-        kr_markets = ["KOSPI", "KOSDAQ"]
+        from repositories import StockRepository
 
         with database.session() as session:
-            query = session.query(StockInfo.code, StockInfo.name)
-            if market == "KR":
-                query = query.filter(StockInfo.market.in_(kr_markets))
-            else:
-                query = query.filter(StockInfo.market == market)
-            rows = query.all()
-        return [(r.code, r.name) for r in rows]
+            return StockRepository(session).get_codes_with_names(market)
 
     @staticmethod
     def _to_dict(n) -> dict:

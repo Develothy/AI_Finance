@@ -7,6 +7,7 @@ from .news_service import NewsService
 from .disclosure_service import DisclosureService
 from .admin_service import AdminService
 from .scheduler_service import SchedulerService
+from .alternative_service import AlternativeService
 
 stock_service = StockService()
 indicator_service = IndicatorService()
@@ -17,6 +18,7 @@ news_service = NewsService()
 disclosure_service = DisclosureService()
 admin_service = AdminService()
 scheduler_service = SchedulerService()
+alternative_service = AlternativeService()
 
 __all__ = [
     "StockService", "stock_service",
@@ -28,4 +30,5 @@ __all__ = [
     "DisclosureService", "disclosure_service",
     "AdminService", "admin_service",
     "SchedulerService", "scheduler_service",
+    "AlternativeService", "alternative_service",
 ]

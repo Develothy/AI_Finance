@@ -5,6 +5,7 @@ from models.fundamental import StockFundamental, FinancialStatement, MarketInves
 from models.macro import MacroIndicator
 from models.news import NewsSentiment
 from models.disclosure import DartDisclosure, KrxSupplyDemand
+from models.alternative import AlternativeData
 
 __all__ = [
     "StockPrice",
@@ -23,4 +24,5 @@ __all__ = [
     "MarketInvestorTrading",
     "DartDisclosure",
     "KrxSupplyDemand",
+    "AlternativeData",
 ]

@@ -221,6 +221,9 @@ class ScheduleJobRequest(BaseModel):
     ml_include_feature_compute: bool = True   # Step 4: 피처 계산
     ml_optuna_trials: int = 50
 
+    # --- full_collect 전용 필드 ---
+    fc_include_alternative: bool = True  # 대안 데이터(Google Trends + 네이버 커뮤니티) 수집 포함
+
     @model_validator(mode="after")
     def validate_cron(self):
         parts = self.cron_expr.strip().split()
@@ -233,7 +236,7 @@ class ScheduleJobRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_job_type(self):
-        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect", "disclosure_collect", "supply_collect", "market_investor_collect", "full_collect")
+        valid_types = ("data_collect", "ml_train", "fundamental_collect", "macro_collect", "news_collect", "disclosure_collect", "supply_collect", "market_investor_collect", "alternative_collect", "full_collect")
         if self.job_type not in valid_types:
             raise ValueError(f"job_type은 {valid_types} 중 하나여야 합니다.")
         return self
@@ -261,6 +264,8 @@ class ScheduleJobResponse(BaseModel):
     ml_include_dart_collect: Optional[bool] = None
     ml_include_feature_compute: Optional[bool] = None
     ml_optuna_trials: Optional[int] = None
+    # full_collect 전용
+    fc_include_alternative: Optional[bool] = None
 
     @classmethod
     def from_model(cls, job, next_run: Optional[str] = None, ml_config=None):
@@ -278,6 +283,8 @@ class ScheduleJobResponse(BaseModel):
             updated_at=job.updated_at.strftime("%Y-%m-%d %H:%M:%S") if job.updated_at else None,
             next_run_time=next_run,
         )
+        if getattr(job, "job_type", "") == "full_collect":
+            data["fc_include_alternative"] = getattr(job, "include_alternative", True)
         if ml_config:
             data["ml_markets"] = ml_config.get_markets()
             data["ml_algorithms"] = ml_config.get_algorithms()

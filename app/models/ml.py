@@ -121,6 +121,14 @@ class FeatureStore(ModelBase):
     news_sentiment_filtered = Column(Numeric(6, 4))         # 필터링된 뉴스 센티먼트
     sector_news_sentiment = Column(Numeric(6, 4))           # 섹터 뉴스 센티먼트
 
+    # 대안 데이터 피처 (Phase 7)
+    google_trend_score = Column(Numeric(6, 4))              # 트렌드 점수 (0~1 정규화)
+    google_trend_momentum = Column(Numeric(10, 6))          # 트렌드 모멘텀 (현재 vs 5일전)
+    community_post_volume = Column(Numeric(10, 4))          # 게시글 수 (log1p)
+    community_comment_volume = Column(Numeric(10, 4))       # 댓글 수 (log1p)
+    community_engagement_ratio = Column(Numeric(8, 4))      # 참여도 (댓글/게시글)
+    alternative_activity_index = Column(Numeric(8, 4))      # 통합 활성도 지수
+
     # 타겟 변수
     target_class_1d = Column(Integer)
     target_class_5d = Column(Integer)

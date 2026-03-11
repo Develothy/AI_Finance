@@ -19,15 +19,9 @@ router = APIRouter(prefix="/news", tags=["News"])
 
 @router.post("/collect", response_model=NewsCollectResponse)
 def collect_news(req: NewsCollectRequest):
-    # 뉴스 센티먼트 수집 실행
-    # codes: [["005930", "삼성전자"], ...] → [(code, name), ...]
-    codes = None
-    if req.codes:
-        codes = [(c[0], c[1]) for c in req.codes]
-
     result = news_service.collect(
         market=req.market,
-        codes=codes,
+        codes=req.codes,
         include_market_news=req.include_market_news,
         max_items_per_code=req.max_items_per_code,
     )

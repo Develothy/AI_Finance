@@ -32,6 +32,7 @@ class ScheduleJob(ModelBase):
     days_back = Column(Integer, nullable=False, default=7)
     enabled = Column(Boolean, nullable=False, default=True)
     description = Column(String(200), nullable=True)
+    include_alternative = Column(Boolean, default=True)  # full_collect 전용: 대안 데이터 수집 포함 여부
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

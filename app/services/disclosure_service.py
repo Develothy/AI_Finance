@@ -179,16 +179,10 @@ class DisclosureService:
 
     @staticmethod
     def _get_stock_codes(market: str) -> list[str]:
-        from models import StockInfo
+        from repositories import StockRepository
 
         with database.session() as session:
-            codes = [
-                r[0] for r in
-                session.query(StockInfo.code)
-                .filter(StockInfo.market == market)
-                .all()
-            ]
-        return codes
+            return StockRepository(session).get_codes_by_market(market)
 
     @staticmethod
     def _disclosure_to_dict(d) -> dict:

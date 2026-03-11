@@ -5,6 +5,8 @@ from repositories.macro_repository import MacroRepository
 from repositories.news_repository import NewsRepository
 from repositories.disclosure_repository import DisclosureRepository
 from repositories.scheduler_repository import SchedulerRepository
+from repositories.alternative_repository import AlternativeRepository
+from repositories.admin_repository import AdminRepository
 
 __all__ = [
     "StockRepository",
@@ -14,4 +16,6 @@ __all__ = [
     "NewsRepository",
     "DisclosureRepository",
     "SchedulerRepository",
+    "AlternativeRepository",
+    "AdminRepository",
 ]

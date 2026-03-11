@@ -41,8 +41,11 @@ def render():
                 "supply_collect": "📈 수급",
                 "market_investor_collect": "🏦 시장수급",
                 "full_collect": "🔄 일괄수집",
+                "alternative_collect": "🔮 대안",
             }
             type_badge = type_badges.get(jtype, f"⚙️ {jtype}")
+            if jtype == "full_collect" and not job.get("fc_include_alternative", True):
+                type_badge += " (대안 제외)"
             col1.markdown(
                 f"<span style='font-size:0.75rem;background:#333;padding:1px 6px;border-radius:4px;'>"
                 f"{type_badge}</span> **{job['job_name']}**"
@@ -89,7 +92,7 @@ def render():
     )
 
     # 파이프라인 플로우 순서
-    PIPELINE_STEPS = [
+    CORE_STEPS = [
         ("data_collect", "📊 가격"),
         ("fundamental_collect", "💰 재무"),
         ("market_investor_collect", "🏦 시장수급"),
@@ -98,7 +101,11 @@ def render():
         ("disclosure_collect", "📋 공시"),
         ("supply_collect", "📈 수급"),
     ]
-    ALL_STEP_KEYS = [k for k, _ in PIPELINE_STEPS]
+    OPTIONAL_STEPS = [
+        ("alternative_collect", "🔮 대안"),
+    ]
+    PIPELINE_STEPS = CORE_STEPS + OPTIONAL_STEPS
+    CORE_STEP_KEYS = [k for k, _ in CORE_STEPS]
 
     with st.form("add_schedule"):
         st.markdown("**수집 단계 선택** (파이프라인 순서)")
@@ -132,8 +139,10 @@ def render():
                 st.error("최소 1개 수집 단계를 선택하세요.")
             else:
                 try:
-                    # 전체 선택 → full_collect 단일 잡
-                    if set(selected_steps) == set(ALL_STEP_KEYS):
+                    # 코어 단계 전부 선택 → full_collect 단일 잡 (대안 데이터는 선택적)
+                    core_selected = set(selected_steps) & set(CORE_STEP_KEYS)
+                    include_alt = "alternative_collect" in selected_steps
+                    if core_selected == set(CORE_STEP_KEYS):
                         data = {
                             "job_name": job_name,
                             "job_type": "full_collect",
@@ -142,9 +151,11 @@ def render():
                             "cron_expr": cron_expr.strip(),
                             "days_back": days_back,
                             "description": description or f"일괄 수집",
+                            "fc_include_alternative": include_alt,
                         }
                         result = admin_client.create_schedule_job(data)
-                        st.success(f"스케줄 추가 완료: {result.get('job_name', '')} (🔄 일괄)")
+                        alt_label = " +대안" if include_alt else ""
+                        st.success(f"스케줄 추가 완료: {result.get('job_name', '')} (🔄 일괄{alt_label})")
                     else:
                         # 개별 선택 → 선택된 단계별 잡 생성
                         created = []

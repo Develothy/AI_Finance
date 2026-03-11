@@ -58,14 +58,14 @@ def cmd_collect(args):
 
 def cmd_scheduler(args):
     """스케줄러 시작"""
-    from data_collector import DataScheduler, SCHEDULER_AVAILABLE
+    from scheduler import JobScheduler, SCHEDULER_AVAILABLE
 
     if not SCHEDULER_AVAILABLE:
         print("apscheduler가 설치되어 있지 않습니다.")
         print("pip install apscheduler")
         return
 
-    scheduler = DataScheduler.get_instance()
+    scheduler = JobScheduler.get_instance()
 
     # DB에 등록된 스케줄 로드
     loaded = scheduler.load_jobs_from_db()

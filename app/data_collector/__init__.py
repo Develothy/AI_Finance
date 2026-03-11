@@ -5,7 +5,7 @@
 한국/미국 주식 데이터 수집 파이프라인
 
 Usage:
-    from data_collector import DataPipeline, DataScheduler
+    from data_collector import DataPipeline
 
     # 수동 수집
     pipeline = DataPipeline()
@@ -36,10 +36,9 @@ Usage:
     print(result.to_dict())
     print(result.data['005930'])  # DataFrame
 
-    # 스케줄러 사용
-    scheduler = DataScheduler()
-    scheduler.add_kr_daily_job(hour=18, minute=0)
-    scheduler.add_us_daily_job(hour=7, minute=0)
+    # 스케줄러 사용 (scheduler 모듈에서 import)
+    from scheduler import JobScheduler
+    scheduler = JobScheduler()
     scheduler.start()
 """
 
@@ -61,14 +60,8 @@ from .news_fetcher import NewsFetcher
 from .sentiment_analyzer import SentimentAnalyzer
 from .disclosure_fetcher import DisclosureFetcher
 from .krx_fetcher import KRXSupplyFetcher
-
-# 스케줄러는 선택적 import (apscheduler 필요)
-try:
-    from .scheduler import DataScheduler
-    SCHEDULER_AVAILABLE = True
-except ImportError:
-    DataScheduler = None
-    SCHEDULER_AVAILABLE = False
+from .google_trends_fetcher import GoogleTrendsFetcher
+from .naver_community_fetcher import NaverCommunityFetcher
 
 
 __all__ = [
@@ -101,9 +94,9 @@ __all__ = [
     "DisclosureFetcher",
     "KRXSupplyFetcher",
 
-    # 스케줄러
-    "DataScheduler",
-    "SCHEDULER_AVAILABLE",
+    # Phase 7 Alternative Data
+    "GoogleTrendsFetcher",
+    "NaverCommunityFetcher",
 ]
 
 __version__ = "1.0.0"

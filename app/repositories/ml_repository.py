@@ -125,6 +125,20 @@ class MLRepository:
             .all()
         )
 
+    def get_codes_with_phase6(self, market: str, codes: list[str]) -> set[str]:
+        """Phase 6 데이터가 있는 종목코드 집합"""
+        rows = (
+            self.session.query(FeatureStore.code)
+            .filter(
+                FeatureStore.market == market,
+                FeatureStore.code.in_(codes),
+                FeatureStore.sector_return_1d.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        return {r[0] for r in rows}
+
     def get_latest_features(self, market: str, code: str) -> Optional[FeatureStore]:
         """최신 피처 조회"""
         return self.session.query(FeatureStore).filter(

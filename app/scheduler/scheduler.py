@@ -1,6 +1,6 @@
 """
-데이터 수집 스케줄러
-=================
+잡 스케줄러
+==========
 
 크론식 기반 자동 실행
 """
@@ -19,7 +19,7 @@ from config import settings
 from core import get_logger
 from db import database
 
-from .pipeline import DataPipeline
+from data_collector.pipeline import DataPipeline
 
 logger = get_logger("scheduler")
 
@@ -65,20 +65,20 @@ def parse_cron_expr(cron_expr: str) -> CronTrigger:
     raise ValueError(f"잘못된 크론식: '{cron_expr}' (5 또는 6필드)")
 
 
-class DataScheduler:
-    """데이터 수집 스케줄러"""
+class JobScheduler:
+    """잡 스케줄러"""
 
-    _instance: "DataScheduler | None" = None
+    _instance: "JobScheduler | None" = None
 
     @classmethod
-    def get_instance(cls) -> "DataScheduler":
+    def get_instance(cls) -> "JobScheduler":
         # 싱글톤 인스턴스
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
     @classmethod
-    def get_running_instance(cls) -> "DataScheduler | None":
+    def get_running_instance(cls) -> "JobScheduler | None":
         # 실행 중인 인스턴스 반환 (없거나 미실행이면 None)
         if cls._instance is None:
             return None
@@ -95,22 +95,23 @@ class DataScheduler:
         self.pipeline = DataPipeline()
         self._jobs = {}
 
-        logger.info("DataScheduler 초기화 완료", "__init__")
+        logger.info("JobScheduler 초기화 완료", "__init__")
 
     def load_jobs_from_db(self):
         # enabled 스케줄 APScheduler에 등록
-        from models import ScheduleJob, MLTrainConfig
+        from repositories.scheduler_repository import SchedulerRepository
 
         with database.session() as session:
-            jobs = session.query(ScheduleJob).filter(ScheduleJob.enabled == True).all()
+            repo = SchedulerRepository(session)
+            jobs = repo.get_all_jobs()
             loaded = 0
             for job_model in jobs:
+                if not job_model.enabled:
+                    continue
                 try:
                     ml_config = None
                     if job_model.job_type == "ml_train":
-                        ml_config = session.query(MLTrainConfig).filter(
-                            MLTrainConfig.job_id == job_model.id
-                        ).first()
+                        ml_config = repo.get_ml_config(job_model.id)
                     self._dispatch_job(job_model, ml_config)
                     loaded += 1
                 except Exception as e:
@@ -118,6 +119,38 @@ class DataScheduler:
 
         logger.info(f"DB에서 {loaded}개 잡 로드 완료", "load_jobs_from_db")
         return loaded
+
+    @staticmethod
+    def _create_schedule_log(job_name: str) -> int | None:
+        """스케줄 실행 이력 생성 (공통 헬퍼)"""
+        from repositories.scheduler_repository import SchedulerRepository
+
+        with database.session() as session:
+            repo = SchedulerRepository(session)
+            job_row = repo.get_job_by_name(job_name)
+            if job_row:
+                log = repo.create_log({
+                    "job_id": job_row.id,
+                    "started_at": datetime.now(),
+                    "status": "running",
+                    "trigger_by": "scheduler",
+                })
+                return log.id
+        return None
+
+    @staticmethod
+    def _update_schedule_log(log_id: int, data: dict):
+        """스케줄 실행 이력 업데이트 (공통 헬퍼)"""
+        if not log_id:
+            return
+        from repositories.scheduler_repository import SchedulerRepository
+
+        with database.session() as session:
+            repo = SchedulerRepository(session)
+            log_entry = repo.get_log(log_id)
+            if log_entry:
+                data.setdefault("finished_at", datetime.now())
+                repo.update_log(log_entry, data)
 
     def add_cron_job(
             self,
@@ -140,23 +173,13 @@ class DataScheduler:
             callback: 완료 후 콜백 함수
         """
         def job_func():
-            from models import ScheduleJob, ScheduleLog
-
             logger.info(
                 f"스케줄 작업 시작",
                 "cron_job",
                 {"job_id": job_id, "market": market, "sector": sector, "cron": cron_expr}
             )
 
-            # 실행 이력 생성
-            log_id = None
-            with database.session() as session:
-                job_row = session.query(ScheduleJob).filter(ScheduleJob.job_name == job_id).first()
-                if job_row:
-                    log = ScheduleLog(job_id=job_row.id, started_at=datetime.now(), status="running", trigger_by="scheduler")
-                    session.add(log)
-                    session.flush()
-                    log_id = log.id
+            log_id = self._create_schedule_log(job_id)
 
             try:
                 end_date = datetime.now().strftime('%Y-%m-%d')
@@ -177,18 +200,14 @@ class DataScheduler:
                     if result.stock_info:
                         svc._save_stock_info(result.stock_info)
 
-                # 실행 이력 업데이트 (성공)
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "success" if result.success else "failed"
-                            log_entry.total_codes = result.total_codes
-                            log_entry.success_count = result.success_count
-                            log_entry.failed_count = result.failed_count
-                            log_entry.db_saved_count = result.db_saved_count
-                            log_entry.message = result.message
+                self._update_schedule_log(log_id, {
+                    "status": "success" if result.success else "failed",
+                    "total_codes": result.total_codes,
+                    "success_count": result.success_count,
+                    "failed_count": result.failed_count,
+                    "db_saved_count": result.db_saved_count,
+                    "message": result.message,
+                })
 
                 logger.info(
                     f"스케줄 작업 완료",
@@ -197,15 +216,10 @@ class DataScheduler:
                 )
 
             except Exception as e:
-                # 실행 이력 업데이트 (실패)
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(ScheduleLog.id == log_id).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "failed"
-                            log_entry.message = str(e)[:500]
-
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
                 logger.error(f"스케줄 작업 실패", "cron_job", {"job_id": job_id, "error": str(e)})
 
             if callback:
@@ -287,25 +301,10 @@ class DataScheduler:
         days_back = job_model.days_back or 7
 
         def ml_job_func():
-            from models import ScheduleJob as SJ, ScheduleLog
-
             logger.info(f"ML 학습 스케줄 시작", "ml_cron_job",
                         {"job_id": job_name, "markets": markets})
 
-            # 실행 이력 생성
-            log_id = None
-            with database.session() as session:
-                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
-                if job_row:
-                    log = ScheduleLog(
-                        job_id=job_row.id,
-                        started_at=datetime.now(),
-                        status="running",
-                        trigger_by="scheduler",
-                    )
-                    session.add(log)
-                    session.flush()
-                    log_id = log.id
+            log_id = self._create_schedule_log(job_name)
 
             try:
                 result = run_training_schedule(
@@ -320,28 +319,18 @@ class DataScheduler:
                     days_back=days_back,
                 )
 
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "success" if result["failed"] == 0 else "partial"
-                            log_entry.success_count = result["trained"]
-                            log_entry.failed_count = result["failed"]
-                            log_entry.message = result.get("summary", "")[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "success" if result["failed"] == 0 else "partial",
+                    "success_count": result["trained"],
+                    "failed_count": result["failed"],
+                    "message": result.get("summary", "")[:500],
+                })
 
             except Exception as e:
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "failed"
-                            log_entry.message = str(e)[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
                 logger.error(f"ML 학습 스케줄 실패", "ml_cron_job", {"error": str(e)})
 
         trigger = parse_cron_expr(cron_expr)
@@ -364,53 +353,29 @@ class DataScheduler:
         market = job_model.market or "KOSPI"
 
         def fundamental_job_func():
-            from models import ScheduleJob as SJ, ScheduleLog
             from services import FundamentalService
 
             logger.info(f"재무 데이터 수집 스케줄 시작", "fundamental_cron_job",
                         {"job_id": job_name, "market": market})
 
-            log_id = None
-            with database.session() as session:
-                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
-                if job_row:
-                    log = ScheduleLog(
-                        job_id=job_row.id,
-                        started_at=datetime.now(),
-                        status="running",
-                        trigger_by="scheduler",
-                    )
-                    session.add(log)
-                    session.flush()
-                    log_id = log.id
+            log_id = self._create_schedule_log(job_name)
 
             try:
-                svc = FundamentalService()
-                result = svc.collect_fundamentals(market=market)
+                result = FundamentalService().collect_fundamentals(market=market)
 
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "success"
-                            log_entry.success_count = result.get("success", 0)
-                            log_entry.failed_count = result.get("failed", 0)
-                            log_entry.db_saved_count = result.get("saved", 0)
-                            log_entry.message = result.get("message", "")[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "success",
+                    "success_count": result.get("success", 0),
+                    "failed_count": result.get("failed", 0),
+                    "db_saved_count": result.get("saved", 0),
+                    "message": result.get("message", "")[:500],
+                })
 
             except Exception as e:
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "failed"
-                            log_entry.message = str(e)[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
                 logger.error(f"재무 데이터 수집 스케줄 실패", "fundamental_cron_job",
                              {"error": str(e)})
 
@@ -433,51 +398,27 @@ class DataScheduler:
         cron_expr = job_model.cron_expr
 
         def market_investor_job_func():
-            from models import ScheduleJob as SJ, ScheduleLog
             from services import FundamentalService
 
             logger.info(f"시장 투자자매매동향 수집 스케줄 시작", "market_investor_cron_job",
                         {"job_id": job_name})
 
-            log_id = None
-            with database.session() as session:
-                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
-                if job_row:
-                    log = ScheduleLog(
-                        job_id=job_row.id,
-                        started_at=datetime.now(),
-                        status="running",
-                        trigger_by="scheduler",
-                    )
-                    session.add(log)
-                    session.flush()
-                    log_id = log.id
+            log_id = self._create_schedule_log(job_name)
 
             try:
-                svc = FundamentalService()
-                result = svc.collect_market_investor_trading()
+                result = FundamentalService().collect_market_investor_trading()
 
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "success"
-                            log_entry.db_saved_count = result.get("saved", 0)
-                            log_entry.message = f"시장 투자자매매동향 {result.get('saved', 0)}건 저장"
+                self._update_schedule_log(log_id, {
+                    "status": "success",
+                    "db_saved_count": result.get("saved", 0),
+                    "message": f"시장 투자자매매동향 {result.get('saved', 0)}건 저장",
+                })
 
             except Exception as e:
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "failed"
-                            log_entry.message = str(e)[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
                 logger.error(f"시장 투자자매매동향 수집 스케줄 실패", "market_investor_cron_job",
                              {"error": str(e)})
 
@@ -501,53 +442,29 @@ class DataScheduler:
         days_back = job_model.days_back or 7
 
         def macro_job_func():
-            from models import ScheduleJob as SJ, ScheduleLog
             from services import MacroService
 
             logger.info(f"거시지표 수집 스케줄 시작", "macro_cron_job",
                         {"job_id": job_name})
 
-            log_id = None
-            with database.session() as session:
-                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
-                if job_row:
-                    log = ScheduleLog(
-                        job_id=job_row.id,
-                        started_at=datetime.now(),
-                        status="running",
-                        trigger_by="scheduler",
-                    )
-                    session.add(log)
-                    session.flush()
-                    log_id = log.id
+            log_id = self._create_schedule_log(job_name)
 
             try:
-                svc = MacroService()
-                result = svc.collect(days_back=days_back)
+                result = MacroService().collect(days_back=days_back)
 
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "success"
-                            log_entry.success_count = result.get("success", 0)
-                            log_entry.failed_count = result.get("failed", 0)
-                            log_entry.db_saved_count = result.get("saved", 0)
-                            log_entry.message = result.get("message", "")[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "success",
+                    "success_count": result.get("success", 0),
+                    "failed_count": result.get("failed", 0),
+                    "db_saved_count": result.get("saved", 0),
+                    "message": result.get("message", "")[:500],
+                })
 
             except Exception as e:
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "failed"
-                            log_entry.message = str(e)[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
                 logger.error(f"거시지표 수집 스케줄 실패", "macro_cron_job",
                              {"error": str(e)})
 
@@ -571,53 +488,29 @@ class DataScheduler:
         market = job_model.market or "KR"
 
         def news_job_func():
-            from models import ScheduleJob as SJ, ScheduleLog
             from services import NewsService
 
             logger.info(f"뉴스 수집 스케줄 시작", "news_cron_job",
                         {"job_id": job_name, "market": market})
 
-            log_id = None
-            with database.session() as session:
-                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
-                if job_row:
-                    log = ScheduleLog(
-                        job_id=job_row.id,
-                        started_at=datetime.now(),
-                        status="running",
-                        trigger_by="scheduler",
-                    )
-                    session.add(log)
-                    session.flush()
-                    log_id = log.id
+            log_id = self._create_schedule_log(job_name)
 
             try:
-                svc = NewsService()
-                result = svc.collect(market=market)
+                result = NewsService().collect(market=market)
 
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "success"
-                            log_entry.success_count = result.get("stock_success", 0)
-                            log_entry.failed_count = result.get("stock_failed", 0)
-                            log_entry.db_saved_count = result.get("saved", 0)
-                            log_entry.message = result.get("message", "")[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "success",
+                    "success_count": result.get("stock_success", 0),
+                    "failed_count": result.get("stock_failed", 0),
+                    "db_saved_count": result.get("saved", 0),
+                    "message": result.get("message", "")[:500],
+                })
 
             except Exception as e:
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "failed"
-                            log_entry.message = str(e)[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
                 logger.error(f"뉴스 수집 스케줄 실패", "news_cron_job",
                              {"error": str(e)})
 
@@ -638,53 +531,29 @@ class DataScheduler:
         days_back = job_model.days_back or 60
 
         def disclosure_job_func():
-            from models import ScheduleJob as SJ, ScheduleLog
             from services import DisclosureService
 
             logger.info(f"공시 수집 스케줄 시작", "disclosure_cron_job",
                         {"job_id": job_name, "market": market})
 
-            log_id = None
-            with database.session() as session:
-                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
-                if job_row:
-                    log = ScheduleLog(
-                        job_id=job_row.id,
-                        started_at=datetime.now(),
-                        status="running",
-                        trigger_by="scheduler",
-                    )
-                    session.add(log)
-                    session.flush()
-                    log_id = log.id
+            log_id = self._create_schedule_log(job_name)
 
             try:
-                svc = DisclosureService()
-                result = svc.collect_disclosures(market=market, days=days_back)
+                result = DisclosureService().collect_disclosures(market=market, days=days_back)
 
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "success"
-                            log_entry.success_count = result.get("success", 0)
-                            log_entry.failed_count = result.get("failed", 0)
-                            log_entry.db_saved_count = result.get("saved", 0)
-                            log_entry.message = result.get("message", "")[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "success",
+                    "success_count": result.get("success", 0),
+                    "failed_count": result.get("failed", 0),
+                    "db_saved_count": result.get("saved", 0),
+                    "message": result.get("message", "")[:500],
+                })
 
             except Exception as e:
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "failed"
-                            log_entry.message = str(e)[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
                 logger.error(f"공시 수집 스케줄 실패", "disclosure_cron_job",
                              {"error": str(e)})
 
@@ -705,53 +574,29 @@ class DataScheduler:
         days_back = job_model.days_back or 60
 
         def supply_job_func():
-            from models import ScheduleJob as SJ, ScheduleLog
             from services import DisclosureService
 
             logger.info(f"수급 수집 스케줄 시작", "supply_cron_job",
                         {"job_id": job_name, "market": market})
 
-            log_id = None
-            with database.session() as session:
-                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
-                if job_row:
-                    log = ScheduleLog(
-                        job_id=job_row.id,
-                        started_at=datetime.now(),
-                        status="running",
-                        trigger_by="scheduler",
-                    )
-                    session.add(log)
-                    session.flush()
-                    log_id = log.id
+            log_id = self._create_schedule_log(job_name)
 
             try:
-                svc = DisclosureService()
-                result = svc.collect_supply_demand(market=market, days=days_back)
+                result = DisclosureService().collect_supply_demand(market=market, days=days_back)
 
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "success"
-                            log_entry.success_count = result.get("success", 0)
-                            log_entry.failed_count = result.get("failed", 0)
-                            log_entry.db_saved_count = result.get("saved", 0)
-                            log_entry.message = result.get("message", "")[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "success",
+                    "success_count": result.get("success", 0),
+                    "failed_count": result.get("failed", 0),
+                    "db_saved_count": result.get("saved", 0),
+                    "message": result.get("message", "")[:500],
+                })
 
             except Exception as e:
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "failed"
-                            log_entry.message = str(e)[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
                 logger.error(f"수급 수집 스케줄 실패", "supply_cron_job",
                              {"error": str(e)})
 
@@ -764,61 +609,80 @@ class DataScheduler:
         logger.info(f"수급 수집 스케줄 등록", "add_supply_job",
                     {"job_id": job_name, "market": market})
 
+    def add_alternative_job(self, job_model):
+        """대안 데이터(Google Trends + 네이버 커뮤니티) 수집 크론 잡 등록 (Phase 7)"""
+        job_name = job_model.job_name
+        cron_expr = job_model.cron_expr
+        market = job_model.market or "KOSPI"
+        days_back = job_model.days_back or 90
+
+        def alternative_job_func():
+            from services import AlternativeService
+
+            logger.info(f"대안 데이터 수집 스케줄 시작", "alternative_cron_job",
+                        {"job_id": job_name, "market": market})
+
+            log_id = self._create_schedule_log(job_name)
+
+            try:
+                result = AlternativeService().collect_all(market=market, days=days_back)
+
+                self._update_schedule_log(log_id, {
+                    "status": "success",
+                    "db_saved_count": result.get("saved", 0),
+                    "message": result.get("message", "")[:500],
+                })
+
+            except Exception as e:
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
+                logger.error(f"대안 데이터 수집 스케줄 실패", "alternative_cron_job",
+                             {"error": str(e)})
+
+        trigger = parse_cron_expr(cron_expr)
+        job = self.scheduler.add_job(
+            alternative_job_func, trigger=trigger, id=job_name,
+            replace_existing=True, max_instances=1,
+        )
+        self._jobs[job_name] = job
+        logger.info(f"대안 데이터 수집 스케줄 등록", "add_alternative_job",
+                    {"job_id": job_name, "market": market})
+
     def add_full_collect_job(self, job_model):
-        """전체 데이터 일괄 수집 + 피처 계산 크론 잡 등록 (가격→재무→거시→뉴스→공시→수급→피처)"""
+        """전체 데이터 일괄 수집 + 피처 계산 크론 잡 등록 (가격→재무→거시→뉴스→공시→수급→대안→피처)"""
         job_name = job_model.job_name
         cron_expr = job_model.cron_expr
         market = job_model.market or "KOSPI"
         sector = job_model.sector or None
         days_back = job_model.days_back or 7
+        include_alternative = getattr(job_model, "include_alternative", True)
 
         def full_collect_job_func():
-            from models import ScheduleJob as SJ, ScheduleLog
             from services import scheduler_service
 
             logger.info(f"일괄 수집 스케줄 시작", "full_collect_cron_job",
                         {"job_id": job_name, "market": market, "sector": sector})
 
-            log_id = None
-            with database.session() as session:
-                job_row = session.query(SJ).filter(SJ.job_name == job_name).first()
-                if job_row:
-                    log = ScheduleLog(
-                        job_id=job_row.id,
-                        started_at=datetime.now(),
-                        status="running",
-                        trigger_by="scheduler",
-                    )
-                    session.add(log)
-                    session.flush()
-                    log_id = log.id
+            log_id = self._create_schedule_log(job_name)
 
             try:
-                result = scheduler_service._run_full_collect(market, days_back, sector)
+                result = scheduler_service._run_full_collect(market, days_back, sector, include_alternative=include_alternative)
 
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "success" if result.get("failed", 0) == 0 else "partial"
-                            log_entry.success_count = result.get("success", 0)
-                            log_entry.failed_count = result.get("failed", 0)
-                            log_entry.db_saved_count = result.get("saved", 0)
-                            log_entry.message = result.get("message", "")[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "success" if result.get("failed", 0) == 0 else "partial",
+                    "success_count": result.get("success", 0),
+                    "failed_count": result.get("failed", 0),
+                    "db_saved_count": result.get("saved", 0),
+                    "message": result.get("message", "")[:500],
+                })
 
             except Exception as e:
-                if log_id:
-                    with database.session() as session:
-                        log_entry = session.query(ScheduleLog).filter(
-                            ScheduleLog.id == log_id
-                        ).first()
-                        if log_entry:
-                            log_entry.finished_at = datetime.now()
-                            log_entry.status = "failed"
-                            log_entry.message = str(e)[:500]
+                self._update_schedule_log(log_id, {
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
                 logger.error(f"일괄 수집 스케줄 실패", "full_collect_cron_job",
                              {"error": str(e)})
 
@@ -894,6 +758,7 @@ class DataScheduler:
             "news_collect": lambda: self.add_news_job(job_model),
             "disclosure_collect": lambda: self.add_disclosure_job(job_model),
             "supply_collect": lambda: self.add_supply_job(job_model),
+            "alternative_collect": lambda: self.add_alternative_job(job_model),
             "full_collect": lambda: self.add_full_collect_job(job_model),
         }
         handler = dispatch.get(job_type)

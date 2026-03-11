@@ -239,7 +239,10 @@ AI_Finance/
 │   │   ├── dart_fetcher.py       # DART 재무제표
 │   │   ├── disclosure_fetcher.py # DART 공시 센티먼트 분석
 │   │   ├── krx_fetcher.py        # KRX 수급 데이터 (KIS API)
-│   │   └── scheduler.py          # APScheduler 잡 관리
+│   │   ├── google_trends_fetcher.py  # Google Trends 수집
+│   │   └── naver_community_fetcher.py # 네이버 커뮤니티 수집
+│   ├── scheduler/                # 스케줄러 모듈
+│   │   └── scheduler.py          # APScheduler 잡 관리 (JobScheduler)
 │   ├── indicators/               # 기술적 지표 계산
 │   ├── ml/                       # Module 2~3: 피처/ML
 │   │   ├── feature_engineer.py   # 피처 엔지니어링 (Phase 1~6)

@@ -14,20 +14,20 @@
 | ML | scikit-learn, XGBoost, LightGBM, Optuna |
 | NLP | transformers, KR-FinBert-SC (한국어 금융 센티먼트) |
 | Dashboard | Streamlit, Plotly |
-| Scheduling | APScheduler (boolean 플래그 기반 파이프라인) |
+| Scheduling | APScheduler (Step 기반 파이프라인, 10단계 핸들러) |
 | Deploy | Docker, docker-compose |
 
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────────────────────┐
-│                       EXTERNAL DATA SOURCES                       │
-├──────────┬──────────┬───────────┬──────────┬──────────┬───────────┤
-│ yfinance │ FDR/FRED │  KIS API  │ DART API │  Naver   │    KRX    │  Google  │
-│ (주가+    │ (KR3Y+   │ (펀더멘털+  │ (재무+공시) │  News    │  (수급:    │  Trends  │
-│  거시7)   │  거시3)   │  수급)     │           │(센티먼트)  │  KIS API) │ +커뮤니티  │
-└──────┬───┴────┬─────┴────┬─────┴────┬─────┴────┬─────┴─────┬────┴─────┘
-       └────────┴──────────┴──────────┴──────────┴───────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                              EXTERNAL DATA SOURCES                              │
+├──────────┬──────────┬───────────┬──────────┬──────────┬───────────┬─────────────┤
+│ yfinance │ FDR/FRED │  KIS API  │ DART API │  Naver   │    KRX    │   Google    │
+│ (주가+    │ (KR3Y+   │ (펀더멘털+  │ (재무+공시) │  News    │  (수급:    │   Trends   │
+│  거시7)   │  거시3)   │  수급)     │           │(센티먼트)  │  KIS API) │  +커뮤니티   │
+└──────┬───┴────┬─────┴────┬─────┴────┬─────┴────┬─────┴─────┬────┴──────┬──────┘
+       └────────┴──────────┴──────────┴──────────┴───────────┴──────────┘
                                 │
                 ┌───────────────┼───────────────┐
                 ▼               ▼               ▼
@@ -65,8 +65,8 @@
 
 | No. | 모듈 | 설명 | 상태 |
 |-----|------|------|------|
-| 0 | 데이터 수집 | 주가, 펀더멘털, 거시경제, 뉴스, DART 공시, KRX 수급 | ✅ 완료 |
-| 1 | 데이터 분석 | 뉴스 NLP (KR-FinBert-SC), DART 공시 센티먼트, 대안* | 🔶 부분 |
+| 0 | 데이터 수집 | 주가, 펀더멘털, 거시경제, 뉴스, DART 공시, KRX 수급, 대안 데이터 | ✅ 완료 |
+| 1 | 데이터 분석 | 뉴스 NLP (KR-FinBert-SC), DART 공시 센티먼트, 대안 데이터 | ✅ 완료 |
 | 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~7 피처 생성 (75) | ✅ 완료 |
 | 3 | 머신러닝 | RF / XGBoost / LightGBM, Optuna 튜닝 | ✅ 완료 |
 | 4 | 딥러닝 | LSTM, Transformer, 강화학습 | 🔲 예정 |
@@ -253,6 +253,7 @@ AI_Finance/
 │   │   ├── google_trends_fetcher.py  # Google Trends 수집
 │   │   └── naver_community_fetcher.py # 네이버 커뮤니티 수집
 │   ├── scheduler/                # 스케줄러 모듈
+│   │   ├── __init__.py
 │   │   └── scheduler.py          # APScheduler 잡 관리 (JobScheduler)
 │   ├── indicators/               # 기술적 지표 계산
 │   ├── ml/                       # Module 2~3: 피처/ML
@@ -263,7 +264,9 @@ AI_Finance/
 │   │   ├── ml_config.yaml        # ML 알고리즘 설정
 │   │   └── signal_generator.py   # BUY/SELL/HOLD 시그널
 │   ├── models/                   # SQLAlchemy 모델
+│   │   └── schedule.py           # ScheduleJob + JobStep
 │   ├── repositories/             # DB CRUD
+│   │   └── scheduler_repository.py  # 스케줄러 CRUD
 │   ├── services/                 # 비즈니스 로직
 │   ├── core/                     # 유틸리티 (로깅, 예외, 데코레이터)
 │   ├── config.py                 # 설정 (환경변수)
@@ -289,6 +292,8 @@ AI_Finance/
 │       ├── ml_train_manager.py   # ML 학습 관리
 │       ├── ml_models.py          # 학습된 모델 조회
 │       └── ml_predictions.py     # 예측 테스트
+├── scripts/                         # 유틸리티 스크립트
+│   └── migrate_boolean_to_steps.py  # boolean→Step 마이그레이션
 ├── docs/                         # 프로젝트 문서
 ├── docker-compose.yml
 ├── Dockerfile

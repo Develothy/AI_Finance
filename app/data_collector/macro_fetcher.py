@@ -187,11 +187,17 @@ class MacroFetcher:
                     fail += 1
                     continue
 
-                # MultiIndex인 경우 flatten
+                # MultiIndex / DataFrame → Series 변환
                 if isinstance(close.columns, pd.MultiIndex):
-                    close = close.droplevel("Ticker", axis=1).squeeze()
-                elif hasattr(close, "columns"):
-                    close = close.squeeze()
+                    close = close.droplevel("Ticker", axis=1)
+                if hasattr(close, "columns"):
+                    close = close.iloc[:, 0] if len(close.columns) == 1 else close
+
+                # 스칼라인 경우 (데이터 1건) Series로 변환
+                if not isinstance(close, pd.Series):
+                    logger.warning(f"yfinance {symbol}({indicator_name}) 수집 실패: 단일 스칼라", "_fetch_yfinance")
+                    fail += 1
+                    continue
 
                 pct = close.pct_change()
 

@@ -328,12 +328,15 @@ class MLTrainRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_algorithm(self):
-        valid_algorithms = {"random_forest", "xgboost", "lightgbm"}
+        valid_algorithms = {"random_forest", "xgboost", "lightgbm", "lstm", "transformer"}
         if self.algorithm not in valid_algorithms:
             raise ValueError(f"algorithm은 {valid_algorithms} 중 하나여야 합니다")
         valid_targets = {"target_class_1d", "target_class_5d"}
         if self.target_column not in valid_targets:
             raise ValueError(f"target_column은 {valid_targets} 중 하나여야 합니다")
+        # DL 알고리즘은 기본 Optuna trials 축소
+        if self.algorithm in {"lstm", "transformer"} and self.optuna_trials > 30:
+            self.optuna_trials = 20
         return self
 
 

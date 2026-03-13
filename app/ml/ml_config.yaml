@@ -41,3 +41,54 @@ algorithms:
       feature_fraction: { type: float, low: 0.6, high: 1.0 }
       bagging_fraction: { type: float, low: 0.6, high: 1.0 }
       bagging_freq: { type: int, low: 1, high: 7 }
+
+  # ============================================================
+  # 딥러닝 (Phase 8A)
+  # ============================================================
+
+  lstm:
+    model_class: ml.deep_learning.architectures.LSTMClassifier
+    type: deep_learning
+    defaults:
+      seq_len: 20
+      hidden_size: 128
+      num_layers: 2
+      dropout: 0.3
+      bidirectional: true
+      lr: 0.001
+      batch_size: 64
+      epochs: 100
+      patience: 10
+      grad_clip: 1.0
+    search_space:
+      seq_len: { type: int, low: 10, high: 40, step: 5 }
+      hidden_size: { type: categorical, choices: [64, 128, 256] }
+      num_layers: { type: int, low: 1, high: 3 }
+      dropout: { type: float, low: 0.1, high: 0.5 }
+      lr: { type: float, low: 0.0001, high: 0.01, log: true }
+      batch_size: { type: categorical, choices: [32, 64, 128] }
+
+  transformer:
+    model_class: ml.deep_learning.architectures.TransformerClassifier
+    type: deep_learning
+    defaults:
+      seq_len: 20
+      d_model: 128
+      nhead: 8
+      num_layers: 3
+      dim_feedforward: 256
+      dropout: 0.2
+      lr: 0.0005
+      batch_size: 64
+      epochs: 100
+      patience: 10
+      grad_clip: 1.0
+    search_space:
+      seq_len: { type: int, low: 10, high: 40, step: 5 }
+      d_model: { type: categorical, choices: [64, 128, 256] }
+      nhead: { type: categorical, choices: [4, 8] }
+      num_layers: { type: int, low: 2, high: 6 }
+      dim_feedforward: { type: categorical, choices: [128, 256, 512] }
+      dropout: { type: float, low: 0.1, high: 0.5 }
+      lr: { type: float, low: 0.0001, high: 0.01, log: true }
+      batch_size: { type: categorical, choices: [32, 64, 128] }

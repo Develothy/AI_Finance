@@ -40,3 +40,11 @@ def get_classifier_class(algorithm: str):
     module_path, class_name = config["classifier"].rsplit(".", 1)
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
+
+
+def is_deep_learning(algorithm: str) -> bool:
+    """딥러닝 알고리즘 여부 확인"""
+    config = get_ml_config()["algorithms"]
+    if algorithm not in config:
+        return False
+    return config[algorithm].get("type") == "deep_learning"

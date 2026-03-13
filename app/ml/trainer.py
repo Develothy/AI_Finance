@@ -77,6 +77,20 @@ class ModelTrainer:
         Returns:
             {"model_id": int, "metrics": dict, "model_name": str}
         """
+        # DL 알고리즘은 DeepLearningTrainer로 위임
+        from .ml_config_loader import is_deep_learning
+        if is_deep_learning(algorithm):
+            from .deep_learning import DeepLearningTrainer
+            return DeepLearningTrainer().train(
+                market=market,
+                algorithm=algorithm,
+                target_column=target_column,
+                train_ratio=train_ratio,
+                val_ratio=val_ratio,
+                optuna_trials=optuna_trials,
+                feature_columns=feature_columns,
+            )
+
         features = feature_columns or PHASE7_FEATURE_COLUMNS
         model_type = "classification"  # Phase 1은 분류만
 

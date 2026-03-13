@@ -149,6 +149,11 @@ class Predictor:
         code: str,
     ) -> dict | None:
         """단일 모델로 예측 실행"""
+        # DL 모델(.pt)은 DeepLearningPredictor로 위임
+        if ml_model.model_path and ml_model.model_path.endswith(".pt"):
+            from .deep_learning import DeepLearningPredictor
+            return DeepLearningPredictor().predict_single(ml_model, market, code)
+
         # 1. 모델 파일 로드
         saved = joblib.load(ml_model.model_path)
         model = saved["model"]

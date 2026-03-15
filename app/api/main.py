@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.routes import stock_router, indicator_router, admin_router, ml_router, fundamental_router, macro_router, news_router, disclosure_router
+from config import settings
 from db import database
 import models  # noqa: F401 — ModelBase에 모든 모델 등록
 
@@ -44,10 +45,11 @@ app = FastAPI(
 )
 
 # CORS 설정
+_origins = settings.cors_origins_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_origins,
+    allow_credentials=("*" not in _origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -85,4 +87,4 @@ def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=settings.DEV_MODE)

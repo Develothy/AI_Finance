@@ -42,7 +42,7 @@ def _download_with_retry(tickers, start_date, end_date, show_progress):
         end=end_date,
         group_by='ticker',
         progress=show_progress,
-        threads=True
+        threads=False
     )
 
 

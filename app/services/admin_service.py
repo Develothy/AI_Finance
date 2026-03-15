@@ -103,6 +103,8 @@ class AdminService:
             "KIS_MOCK_APP_KEY", "KIS_MOCK_APP_SECRET", "KIS_MOCK_ACCOUNT_NO",
             "ALPACA_API_KEY", "ALPACA_SECRET_KEY",
             "OPENAI_API_KEY",
+            "DART_API_KEY", "FRED_API_KEY",
+            "NAVER_CLIENT_ID", "NAVER_CLIENT_SECRET",
         }
 
         groups_def = {
@@ -115,6 +117,9 @@ class AdminService:
                     "KIS_MOCK_APP_KEY", "KIS_MOCK_APP_SECRET", "KIS_MOCK_ACCOUNT_NO", "KIS_MOCK_MODE"],
             "alpaca": ["ALPACA_API_KEY", "ALPACA_SECRET_KEY", "ALPACA_PAPER"],
             "openai": ["OPENAI_API_KEY", "OPENAI_MODEL"],
+            "dart": ["DART_API_KEY"],
+            "fred": ["FRED_API_KEY"],
+            "naver": ["NAVER_CLIENT_ID", "NAVER_CLIENT_SECRET"],
         }
 
         groups = {}

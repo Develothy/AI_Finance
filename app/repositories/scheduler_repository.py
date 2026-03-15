@@ -62,6 +62,7 @@ class SchedulerRepository:
     def update_log(self, log: ScheduleLog, data: dict):
         for key, val in data.items():
             setattr(log, key, val)
+        self.session.flush()
 
     def get_logs(self, job_id: int | None = None, limit: int = 20) -> list[tuple[ScheduleLog, str | None]]:
         query = self.session.query(ScheduleLog, ScheduleJob.job_name).outerjoin(

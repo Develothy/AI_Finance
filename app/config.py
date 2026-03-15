@@ -9,7 +9,8 @@ Usage:
 
 import os
 from typing import Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from urllib.parse import quote_plus
 
 # dotenv
 try:
@@ -87,17 +88,28 @@ class _Settings:
     ML_OPTUNA_TRIALS: int = 50
     ML_SAVED_MODELS_DIR: str = "saved_models"
 
+    # CORS (쉼표 구분, 예: "http://localhost:3000,https://myapp.com")
+    CORS_ORIGINS: str = "*"
+
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """CORS_ORIGINS를 리스트로 파싱"""
+        if self.CORS_ORIGINS == "*":
+            return ["*"]
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     @property
     def db_url(self) -> str:
         if self.DB_TYPE == "sqlite":
             return f"sqlite:///{self.SQLITE_PATH}"
         else:
+            password = quote_plus(self.DB_PASSWORD or "")
             return (
-                f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}"
+                f"postgresql://{self.DB_USER}:{password}"
                 f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
             )
 

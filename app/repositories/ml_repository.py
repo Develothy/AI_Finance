@@ -172,7 +172,7 @@ class MLRepository:
 
     def get_active_models(self, market: str = None, model_type: str = None) -> list[MLModel]:
         """활성 모델 조회"""
-        query = self.session.query(MLModel).filter(MLModel.is_active == True)
+        query = self.session.query(MLModel).filter(MLModel.is_active.is_(True))
         if market:
             query = query.filter(MLModel.market == market)
         if model_type:
@@ -192,11 +192,12 @@ class MLRepository:
             MLModel.market == market,
             MLModel.model_type == model_type,
             MLModel.target_column == target_column,
-            MLModel.is_active == True,
+            MLModel.is_active.is_(True),
         )
         if algorithm:
             query = query.filter(MLModel.algorithm == algorithm)
         query.update({"is_active": False})
+        self.session.flush()
 
     def delete_model(self, model_id: int) -> bool:
         """모델 삭제"""

@@ -183,6 +183,10 @@ class Predictor:
             if imputer:
                 X = imputer.transform(X)
             else:
+                logger.error(
+                    f"imputer 없음 — NaN을 0으로 대체 (예측 부정확 가능): {market}:{code}",
+                    "_run_prediction",
+                )
                 X = np.nan_to_num(X, nan=0.0)
 
         # 3. 스케일링

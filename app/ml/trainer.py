@@ -126,14 +126,13 @@ class ModelTrainer:
                 X_test = test_df[features].values
                 y_test = test_df[target_column].values
 
-            # 4. NaN 처리 — RandomForest는 NaN 불가, 중앙값 impute
-            if algorithm == "random_forest":
-                from sklearn.impute import SimpleImputer
-                imputer = SimpleImputer(strategy="median")
-                X_train = imputer.fit_transform(X_train)
-                X_val = imputer.transform(X_val)
-                if has_test:
-                    X_test = imputer.transform(X_test)
+            # 4. NaN 처리 — 중앙값 impute (스케일러가 NaN 미지원)
+            from sklearn.impute import SimpleImputer
+            imputer = SimpleImputer(strategy="median")
+            X_train = imputer.fit_transform(X_train)
+            X_val = imputer.transform(X_val)
+            if has_test:
+                X_test = imputer.transform(X_test)
 
             # 5. 스케일링
             scaler = RobustScaler()
@@ -192,12 +191,11 @@ class ModelTrainer:
             save_data = {
                 "model": model,
                 "scaler": scaler,
+                "imputer": imputer,
                 "feature_columns": features,
                 "algorithm": algorithm,
                 "target_column": target_column,
             }
-            if algorithm == "random_forest":
-                save_data["imputer"] = imputer
             joblib.dump(save_data, model_path)
 
             # 10. DB 저장

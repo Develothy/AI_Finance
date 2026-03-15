@@ -43,7 +43,7 @@ class DeepLearningPredictor:
         algorithm = saved["algorithm"]
         model_params = saved["model_params"]
         scaler = saved["scaler"]
-        imputer = saved["imputer"]
+        imputer = saved.get("imputer")
         feature_columns = saved["feature_columns"]
         n_features = saved["n_features"]
         seq_len = saved["seq_len"]
@@ -78,11 +78,18 @@ class DeepLearningPredictor:
         # 4. NaN imputation
         if np.any(np.isnan(feature_array)):
             nan_count = np.isnan(feature_array).sum()
-            logger.warning(
-                f"NaN {nan_count}개 발견, imputer 적용: {market}:{code}",
-                "predict_single",
-            )
-            feature_array = imputer.transform(feature_array)
+            if imputer:
+                logger.warning(
+                    f"NaN {nan_count}개 발견, imputer 적용: {market}:{code}",
+                    "predict_single",
+                )
+                feature_array = imputer.transform(feature_array)
+            else:
+                logger.error(
+                    f"NaN {nan_count}개 발견, imputer 없음 — 0 대체: {market}:{code}",
+                    "predict_single",
+                )
+                feature_array = np.nan_to_num(feature_array, nan=0.0)
 
         # 5. 스케일링
         feature_array = scaler.transform(feature_array)  # (seq_len, n_features)

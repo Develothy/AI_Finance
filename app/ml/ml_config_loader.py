@@ -48,3 +48,11 @@ def is_deep_learning(algorithm: str) -> bool:
     if algorithm not in config:
         return False
     return config[algorithm].get("type") == "deep_learning"
+
+
+def is_reinforcement(algorithm: str) -> bool:
+    """강화학습 알고리즘 여부 확인"""
+    config = get_ml_config()["algorithms"]
+    if algorithm not in config:
+        return False
+    return config[algorithm].get("type") == "reinforcement"

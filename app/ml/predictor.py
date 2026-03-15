@@ -149,6 +149,11 @@ class Predictor:
         code: str,
     ) -> dict | None:
         """단일 모델로 예측 실행"""
+        # RL 모델(.zip)은 RLPredictor로 위임
+        if ml_model.model_path and ml_model.model_path.endswith(".zip"):
+            from .reinforcement import RLPredictor
+            return RLPredictor().predict_single(ml_model, market, code)
+
         # DL 모델(.pt)은 DeepLearningPredictor로 위임
         if ml_model.model_path and ml_model.model_path.endswith(".pt"):
             from .deep_learning import DeepLearningPredictor

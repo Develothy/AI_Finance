@@ -92,3 +92,53 @@ algorithms:
       dropout: { type: float, low: 0.1, high: 0.5 }
       lr: { type: float, low: 0.0001, high: 0.01, log: true }
       batch_size: { type: categorical, choices: [32, 64, 128] }
+
+  # ============================================================
+  # 강화학습 (Phase 8B)
+  # ============================================================
+
+  dqn:
+    type: reinforcement
+    defaults:
+      learning_rate: 0.0001
+      buffer_size: 100000
+      learning_starts: 1000
+      batch_size: 64
+      gamma: 0.99
+      target_update_interval: 1000
+      exploration_fraction: 0.1
+      exploration_final_eps: 0.02
+      total_timesteps: 100000
+      transaction_fee: 0.00015
+      tax_rate: 0.0023
+    search_space:
+      learning_rate: { type: float, low: 0.00005, high: 0.001, log: true }
+      buffer_size: { type: categorical, choices: [50000, 100000, 200000] }
+      batch_size: { type: categorical, choices: [32, 64, 128] }
+      gamma: { type: float, low: 0.95, high: 0.999 }
+      target_update_interval: { type: categorical, choices: [500, 1000, 2000] }
+      total_timesteps: { type: categorical, choices: [50000, 100000, 200000] }
+
+  ppo:
+    type: reinforcement
+    defaults:
+      learning_rate: 0.0003
+      n_steps: 2048
+      batch_size: 64
+      n_epochs: 10
+      gamma: 0.99
+      gae_lambda: 0.95
+      clip_range: 0.2
+      ent_coef: 0.01
+      total_timesteps: 100000
+      transaction_fee: 0.00015
+      tax_rate: 0.0023
+    search_space:
+      learning_rate: { type: float, low: 0.00005, high: 0.001, log: true }
+      n_steps: { type: categorical, choices: [1024, 2048, 4096] }
+      batch_size: { type: categorical, choices: [32, 64, 128] }
+      n_epochs: { type: int, low: 3, high: 15 }
+      gamma: { type: float, low: 0.95, high: 0.999 }
+      clip_range: { type: float, low: 0.1, high: 0.3 }
+      ent_coef: { type: float, low: 0.001, high: 0.05, log: true }
+      total_timesteps: { type: categorical, choices: [50000, 100000, 200000] }

@@ -11,7 +11,7 @@
 | Backend | FastAPI, Uvicorn |
 | Database | PostgreSQL 15 (운영) / SQLite (개발) |
 | ORM | SQLAlchemy 2.0+ |
-| ML / DL | scikit-learn, XGBoost, LightGBM, Optuna, PyTorch |
+| ML / DL / RL | scikit-learn, XGBoost, LightGBM, Optuna, PyTorch, stable-baselines3, Gymnasium |
 | NLP | transformers, KR-FinBert-SC (한국어 금융 센티먼트) |
 | Dashboard | Streamlit, Plotly |
 | Scheduling | APScheduler (Step 기반 파이프라인, 10단계 핸들러) |
@@ -43,7 +43,7 @@
                       └─────────┬─────────┘
                                 │
                       ┌─────────▼─────────┐
-                      │  M3: ML+DL        │
+                      │  M3: ML+DL+RL     │
                       │  (학습/예측)        │
                       └─────────┬─────────┘
                                 │
@@ -69,7 +69,7 @@
 | 1 | 데이터 분석 | 뉴스 NLP (KR-FinBert-SC), DART 공시 센티먼트, 대안 데이터 | ✅ 완료 |
 | 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~7 피처 생성 (75) | ✅ 완료 |
 | 3 | 머신러닝 | RF / XGBoost / LightGBM, Optuna 튜닝 | ✅ 완료 |
-| 4 | 딥러닝 | LSTM, Transformer (Phase 8A ✅), 강화학습 (Phase 8B 🔲) | 🔶 진행 중 |
+| 4 | 딥러닝 + 강화학습 | LSTM, Transformer (Phase 8A), DQN, PPO (Phase 8B) | ✅ 완료 |
 | 5 | 백테스팅/포트폴리오 | 전략 검증, 포트폴리오 최적화 | 🔲 예정 |
 | 6 | 매매 시스템 | 모의투자 + 실매매 (KIS/Alpaca) | 🔲 예정 |
 | 7 | 사용자 대시보드 | 시장 현황, 종목 분석, 뉴스 센티먼트 (Streamlit :8501) | ✅ 완료 |
@@ -116,7 +116,7 @@
      ▼           ▼
 [ Module 3 ]    [ Module 4 ]
  RF/XGB/LGBM    LSTM/Transformer
- Optuna 튜닝    강화학습*
+ Optuna 튜닝    DQN/PPO (RL)
      │               │
      └─────┬─────────┘
            ▼
@@ -261,14 +261,19 @@ AI_Finance/
 │   │   ├── trainer.py            # 모델 학습 (ML + DL 라우팅)
 │   │   ├── predictor.py          # 예측 실행 (ML + DL 라우팅)
 │   │   ├── tuner.py              # Optuna 하이퍼파라미터 (ML)
-│   │   ├── ml_config.yaml        # ML/DL 알고리즘 설정
+│   │   ├── ml_config.yaml        # ML/DL/RL 알고리즘 설정
 │   │   ├── signal_generator.py   # BUY/SELL/HOLD 시그널
-│   │   └── deep_learning/        # Module 4: 딥러닝
-│   │       ├── architectures.py  # LSTM, Transformer 모델 아키텍처
-│   │       ├── dataset.py        # 시퀀스 데이터셋 생성
-│   │       ├── dl_trainer.py     # DL 학습 파이프라인
-│   │       ├── dl_tuner.py       # DL Optuna 하이퍼파라미터
-│   │       └── dl_predictor.py   # DL 예측
+│   │   ├── deep_learning/        # Module 4a: 딥러닝
+│   │   │   ├── architectures.py  # LSTM, Transformer 모델 아키텍처
+│   │   │   ├── dataset.py        # 시퀀스 데이터셋 생성
+│   │   │   ├── dl_trainer.py     # DL 학습 파이프라인
+│   │   │   ├── dl_tuner.py       # DL Optuna 하이퍼파라미터
+│   │   │   └── dl_predictor.py   # DL 예측
+│   │   └── reinforcement/        # Module 4b: 강화학습
+│   │       ├── environment.py    # StockTradingEnv (Gymnasium)
+│   │       ├── rl_trainer.py     # RL 학습 (DQN/PPO, SB3)
+│   │       ├── rl_predictor.py   # RL 예측 + 시그널 변환
+│   │       └── rl_tuner.py       # RL Optuna 하이퍼파라미터
 │   ├── models/                   # SQLAlchemy 모델
 │   │   └── schedule.py           # ScheduleJob + JobStep
 │   ├── repositories/             # DB CRUD
@@ -412,7 +417,17 @@ GET  /admin/health                    # 헬스체크
 - [x] Phase 6 — 데이터 개선: 섹터/상대강도 + 뉴스 센티먼트 정제 (69피처, 2-pass 아키텍처)
 - [x] Phase 7 — 대안 데이터 (Google Trends, 커뮤니티 활성도, 75피처)
 - [x] Phase 8A — 딥러닝 시계열 분류 (LSTM, Transformer + Optuna DL 튜닝)
-- [ ] Phase 8B — 강화학습 (DQN, PPO 매매 에이전트)
+- [x] Phase 8B — 강화학습 (DQN, PPO 매매 에이전트, Gymnasium 환경, Optuna RL 튜닝)
+
+> **Phase 8A vs 8B 비교**
+>
+> | | Phase 8A (지도학습) | Phase 8B (강화학습) |
+> |---|---|---|
+> | **목적** | "내일 오를까?" 분류 | "언제 사고 팔까?" 매매 전략 |
+> | **방식** | 지도학습 (정답 레이블) | 강화학습 (보상 기반 탐색) |
+> | **출력** | 확률 (UP 62%) | 행동 (BUY / SELL / HOLD) |
+> | **모델** | LSTM, Transformer | DQN, PPO (신경망 + RL) |
+> | **학습** | 과거 데이터 한 번 | 환경과 반복 상호작용 |
 - [ ] Phase 9 — 리포트 생성 + 구독 서비스 (ML+DL 통합 시그널 + 이메일/카카오톡/Slack 발송)
 - [ ] Phase 10 — 백테스팅 + 포트폴리오 최적화
 - [ ] Phase 11 — 매매 시스템 (모의투자 + 실매매) + 대시보드 고도화

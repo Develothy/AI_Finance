@@ -322,13 +322,13 @@ class MLFeatureComputeResponse(BaseModel):
 
 class MLTrainRequest(BaseModel):
     market: str = "KOSPI"
-    algorithm: str = "random_forest"  # random_forest / xgboost / lightgbm
+    algorithm: str = "random_forest"  # random_forest / xgboost / lightgbm / lstm / transformer / dqn / ppo
     target_column: str = "target_class_1d"  # target_class_1d / target_class_5d
     optuna_trials: int = 50
 
     @model_validator(mode="after")
     def validate_algorithm(self):
-        valid_algorithms = {"random_forest", "xgboost", "lightgbm", "lstm", "transformer"}
+        valid_algorithms = {"random_forest", "xgboost", "lightgbm", "lstm", "transformer", "dqn", "ppo"}
         if self.algorithm not in valid_algorithms:
             raise ValueError(f"algorithm은 {valid_algorithms} 중 하나여야 합니다")
         valid_targets = {"target_class_1d", "target_class_5d"}
@@ -337,6 +337,9 @@ class MLTrainRequest(BaseModel):
         # DL 알고리즘은 기본 Optuna trials 축소
         if self.algorithm in {"lstm", "transformer"} and self.optuna_trials > 30:
             self.optuna_trials = 20
+        # RL 알고리즘은 기본 Optuna trials 더 축소
+        if self.algorithm in {"dqn", "ppo"} and self.optuna_trials > 15:
+            self.optuna_trials = 10
         return self
 
 

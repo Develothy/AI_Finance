@@ -1,5 +1,5 @@
 """
-ML 모듈 (모듈3: 머신러닝 + 딥러닝 기반 전략)
+ML 모듈 (모듈3: 머신러닝 + 딥러닝 + 강화학습 기반 전략)
 """
 
 from .feature_engineer import FeatureEngineer
@@ -8,6 +8,7 @@ from .predictor import Predictor
 from .signal_generator import generate_signal
 from .training_scheduler import run_training_schedule
 from .deep_learning import DeepLearningTrainer, DeepLearningPredictor
+from .reinforcement import RLTrainer, RLPredictor
 
 __all__ = [
     "FeatureEngineer",
@@ -17,4 +18,6 @@ __all__ = [
     "run_training_schedule",
     "DeepLearningTrainer",
     "DeepLearningPredictor",
+    "RLTrainer",
+    "RLPredictor",
 ]

@@ -15,6 +15,7 @@ import requests
 
 from config import settings
 from core import get_logger, retry
+from data_collector.kis_fetcher import _token_cache
 
 logger = get_logger("supply_fetcher")
 
@@ -60,7 +61,11 @@ class KRXSupplyFetcher:
 
     def _get_access_token(self) -> str:
         now = datetime.now()
-        if self._access_token and self._token_expires_at and now < self._token_expires_at:
+
+        # 모듈 레벨 캐시 확인 (kis_fetcher와 공유)
+        cached = _token_cache.get(self.app_key)
+        if cached and now < cached["expires_at"]:
+            self._access_token = cached["token"]
             return self._access_token
 
         url = f"{self.base_url}/oauth2/tokenP"
@@ -75,7 +80,13 @@ class KRXSupplyFetcher:
         data = resp.json()
 
         self._access_token = data["access_token"]
-        self._token_expires_at = now + timedelta(hours=23)
+        expires_at = now + timedelta(hours=23)
+
+        _token_cache[self.app_key] = {
+            "token": self._access_token,
+            "expires_at": expires_at,
+        }
+
         logger.info("KIS OAuth 토큰 발급 (supply_fetcher)", "_get_access_token")
         return self._access_token
 

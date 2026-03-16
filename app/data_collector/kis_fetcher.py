@@ -26,6 +26,9 @@ _BASE_URL_MOCK = "https://openapivts.koreainvestment.com:29443"
 # 초당 요청 제한 (20/sec → 0.05초 간격, 여유 있게 0.1초)
 _REQUEST_INTERVAL = 0.1
 
+# 모듈 레벨 토큰 캐시 (동일 앱키 인스턴스 간 공유 → 403 방지)
+_token_cache: dict = {}   # {app_key: {"token": str, "expires_at": datetime}}
+
 
 @dataclass
 class KISFetchResult:
@@ -70,9 +73,15 @@ class KISClient:
     # ============================================================
 
     def _get_access_token(self) -> str:
-        # OAuth2 액세스 토큰 발급 (캐시)
+        # OAuth2 액세스 토큰 발급 (모듈 레벨 캐시로 인스턴스 간 공유)
+        from datetime import timedelta
+
         now = datetime.now()
-        if self._access_token and self._token_expires_at and now < self._token_expires_at:
+
+        # 1) 모듈 캐시 확인
+        cached = _token_cache.get(self.app_key)
+        if cached and now < cached["expires_at"]:
+            self._access_token = cached["token"]
             return self._access_token
 
         url = f"{self.base_url}/oauth2/tokenP"
@@ -87,9 +96,13 @@ class KISClient:
         data = resp.json()
 
         self._access_token = data["access_token"]
-        # 토큰 유효기간: 보통 24시간, 안전하게 23시간으로 설정
-        from datetime import timedelta
-        self._token_expires_at = now + timedelta(hours=23)
+        expires_at = now + timedelta(hours=23)
+
+        # 모듈 캐시에 저장
+        _token_cache[self.app_key] = {
+            "token": self._access_token,
+            "expires_at": expires_at,
+        }
 
         logger.info("KIS OAuth 토큰 발급 완료", "_get_access_token")
         return self._access_token

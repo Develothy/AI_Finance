@@ -69,36 +69,17 @@ def filter_kr_stocks_by_sector(
         df: pd.DataFrame,
         sector: Optional[str] = None
 ) -> pd.DataFrame:
-    """섹터로 필터링 (0건이면 FDR 재조회 1회 재시도)"""
+    """섹터로 필터링 (sector + industry 컬럼 모두 검색)"""
     if sector is None:
         return df
 
-    # 섹터명 부분 매칭
-    mask = df['sector'].str.contains(sector, case=False, na=False)
-    filtered = df[mask]
+    # sector, industry 컬럼 모두에서 부분 매칭 (FDR 버전별 컬럼 변동 대응)
+    mask = pd.Series(False, index=df.index)
+    for col in ['sector', 'industry']:
+        if col in df.columns:
+            mask = mask | df[col].str.contains(sector, case=False, na=False)
 
-    # FDR이 간헐적으로 sector를 빈 값으로 반환 → 재조회
-    if filtered.empty and df['sector'].notna().sum() == 0:
-        logger.warning(
-            f"섹터 데이터 누락 감지, FDR 재조회",
-            "filter_kr_stocks_by_sector",
-            {"sector": sector}
-        )
-        import time
-        time.sleep(1)
-        retry_df = fdr.StockListing('KRX-DESC')
-        retry_df = retry_df.rename(columns={
-            'Code': 'code', 'Name': 'name', 'Market': 'market',
-            'Sector': 'sector', 'Industry': 'industry',
-        })
-        # 원본 df의 마켓 필터 유지
-        markets = df['market'].unique().tolist() if 'market' in df.columns else []
-        if markets:
-            retry_df = retry_df[retry_df['market'].isin(markets)]
-        mask = retry_df['sector'].str.contains(sector, case=False, na=False)
-        filtered = retry_df[mask]
-        cols = [c for c in ['code', 'name', 'market', 'sector', 'industry'] if c in filtered.columns]
-        filtered = filtered[cols]
+    filtered = df[mask]
 
     logger.info(
         f"섹터 필터링 완료",

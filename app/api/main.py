@@ -24,6 +24,10 @@ database.create_tables()
 async def lifespan(app: FastAPI):
     """앱 시작/종료 시 스케줄러 관리"""
     from scheduler import JobScheduler, SCHEDULER_AVAILABLE
+    from services.scheduler_service import SchedulerService
+
+    # 앱 재시작 시 좀비 로그(status='running') 정리
+    SchedulerService().cleanup_stale_logs()
 
     if SCHEDULER_AVAILABLE:
         scheduler = JobScheduler.get_instance()

@@ -64,6 +64,12 @@ class SchedulerRepository:
             setattr(log, key, val)
         self.session.flush()
 
+    def get_stale_running_logs(self) -> list[ScheduleLog]:
+        # status='running'인 고아 로그 전체 반환
+        return self.session.query(ScheduleLog).filter(
+            ScheduleLog.status == "running"
+        ).all()
+
     def get_logs(self, job_id: int | None = None, limit: int = 20) -> list[tuple[ScheduleLog, str | None]]:
         query = self.session.query(ScheduleLog, ScheduleJob.job_name).outerjoin(
             ScheduleJob, ScheduleLog.job_id == ScheduleJob.id

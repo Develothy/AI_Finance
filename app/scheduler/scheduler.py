@@ -152,6 +152,17 @@ class JobScheduler:
                 data.setdefault("finished_at", datetime.now())
                 repo.update_log(log_entry, data)
 
+    @staticmethod
+    def _update_schedule_log_safe(log_id: int, data: dict):
+        try:
+            JobScheduler._update_schedule_log(log_id, data)
+        except Exception as e:
+            logger.error(
+                f"스케줄 로그 업데이트 실패 (log_id={log_id})",
+                "_update_schedule_log_safe",
+                {"error": str(e), "data": str(data)[:200]},
+            )
+
     def add_cron_job(
             self,
             job_id: str,
@@ -305,7 +316,7 @@ class JobScheduler:
             try:
                 result = _execute_pipeline(market, sector, days_back, steps_data)
 
-                self._update_schedule_log(log_id, {
+                self._update_schedule_log_safe(log_id, {
                     "status": "success" if result.get("failed", 0) == 0 else "partial",
                     "success_count": result.get("success", 0),
                     "failed_count": result.get("failed", 0),
@@ -314,7 +325,7 @@ class JobScheduler:
                 })
 
             except Exception as e:
-                self._update_schedule_log(log_id, {
+                self._update_schedule_log_safe(log_id, {
                     "status": "failed",
                     "message": str(e)[:500],
                 })

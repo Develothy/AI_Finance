@@ -158,6 +158,23 @@ STEP_HANDLERS = {
 
 class SchedulerService:
 
+    def cleanup_stale_logs(self):
+        # 앱 재시작 시 status='running'인 좀비 로그를 'failed'로 변경
+        try:
+            with database.session() as session:
+                repo = SchedulerRepository(session)
+                stale = repo.get_stale_running_logs()
+                for log_entry in stale:
+                    repo.update_log(log_entry, {
+                        "finished_at": datetime.now(),
+                        "status": "failed",
+                        "message": f"앱 재시작으로 중단 (원래 시작: {log_entry.started_at})",
+                    })
+                if stale:
+                    logger.info(f"고아 로그 {len(stale)}건 정리", "cleanup_stale_logs")
+        except Exception as e:
+            logger.warning(f"고아 로그 정리 실패: {e}", "cleanup_stale_logs")
+
     # ── CRUD ──
 
     def list_jobs(self) -> list[ScheduleJobResponse]:
@@ -328,36 +345,40 @@ class SchedulerService:
 
     # ── 통합 실행 로직 (백그라운드 스레드) ──
 
+    def _update_log_safe(self, log_id: int, data: dict):
+        try:
+            with database.session() as session:
+                repo = SchedulerRepository(session)
+                log_entry = repo.get_log(log_id)
+                if log_entry:
+                    repo.update_log(log_entry, data)
+        except Exception as e:
+            logger.error(
+                f"스케줄 로그 업데이트 실패 (log_id={log_id})",
+                "_update_log_safe",
+                {"error": str(e), "data": str(data)[:200]},
+            )
+
     def _run_job(self, log_id: int, market: str, sector: str, days_back: int,
                  steps_data: list[dict]):
         """step 기반 통합 잡 실행"""
         try:
             result = _execute_pipeline(market, sector, days_back, steps_data)
-
-            with database.session() as session:
-                repo = SchedulerRepository(session)
-                log_entry = repo.get_log(log_id)
-                if log_entry:
-                    repo.update_log(log_entry, {
-                        "finished_at": datetime.now(),
-                        "status": "success" if result.get("failed", 0) == 0 else "partial",
-                        "success_count": result.get("success", 0),
-                        "failed_count": result.get("failed", 0),
-                        "db_saved_count": result.get("saved", 0),
-                        "message": result.get("message", "")[:500],
-                    })
-
+            self._update_log_safe(log_id, {
+                "finished_at": datetime.now(),
+                "status": "success" if result.get("failed", 0) == 0 else "partial",
+                "success_count": result.get("success", 0),
+                "failed_count": result.get("failed", 0),
+                "db_saved_count": result.get("saved", 0),
+                "message": result.get("message", "")[:500],
+            })
         except Exception as e:
             logger.error(f"잡 실행 실패", "_run_job", {"error": str(e)})
-            with database.session() as session:
-                repo = SchedulerRepository(session)
-                log_entry = repo.get_log(log_id)
-                if log_entry:
-                    repo.update_log(log_entry, {
-                        "finished_at": datetime.now(),
-                        "status": "failed",
-                        "message": str(e)[:500],
-                    })
+            self._update_log_safe(log_id, {
+                "finished_at": datetime.now(),
+                "status": "failed",
+                "message": str(e)[:500],
+            })
 
 
 def _init_ctx(market: str, sector: str) -> dict:

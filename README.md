@@ -48,7 +48,7 @@
                       └─────────┬─────────┘
                                 │
                       ┌─────────▼─────────┐
-                      │   M5: 백테스팅*     │
+                      │   M5: 백테스팅      │
                       └─────────┬─────────┘
                                 │
                 ┌───────────────┼───────────────┐
@@ -58,7 +58,7 @@
       │   (모의+실매매)   │ │  Dash :8501 │ │  Dash :8502  │
       └────────────────┘ └─────────────┘ └──────────────┘
 
-   * = 개발 예정
+   * = 개발 예정   (M5 완료)
 ```
 
 ## Modules
@@ -70,7 +70,7 @@
 | 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~7 피처 생성 (75) | ✅ 완료 |
 | 3 | 머신러닝 | RF / XGBoost / LightGBM, Optuna 튜닝 | ✅ 완료 |
 | 4 | 딥러닝 + 강화학습 | LSTM, Transformer (Phase 8A), DQN, PPO (Phase 8B) | ✅ 완료 |
-| 5 | 백테스팅/포트폴리오 | 전략 검증, 포트폴리오 최적화 | 🔲 예정 |
+| 5 | 백테스팅/포트폴리오 | 시그널 앙상블 백테스트, 성과 지표, 벤치마크 비교 | ✅ 완료 |
 | 6 | 매매 시스템 | 모의투자 + 실매매 (KIS/Alpaca) | 🔲 예정 |
 | 7 | 사용자 대시보드 | 시장 현황, 종목 분석, 뉴스 센티먼트 (Streamlit :8501) | ✅ 완료 |
 | 8 | 관리자 대시보드 | 시스템 모니터링, ML/뉴스/공시/수급 관리 (Streamlit :8502) | ✅ 완료 |
@@ -123,14 +123,15 @@
 [ ml_prediction: BUY / SELL / HOLD ]
            │
            ▼
-[ Module 5: 백테스팅* ]
+[ Module 5: 백테스팅 ]
+ 시그널 앙상블 · 포트폴리오 시뮬레이션
            │
      ┌─────┴─────┐
      ▼           ▼
 [ Module 6* ]    [ Module 7/8 ]
  모의+실매매     대시보드
 
-* = 개발 예정
+* = 개발 예정 (M5 완료)
 ```
 
 ## [M2] Feature Engineering (7-Phase)
@@ -239,6 +240,7 @@ AI_Finance/
 │   │   │   ├── news.py           # 뉴스 센티먼트 API
 │   │   │   ├── disclosure.py     # DART 공시 + KRX 수급 API
 │   │   │   ├── ml.py             # ML 파이프라인 API
+│   │   │   ├── backtest.py       # 백테스트 API
 │   │   │   └── admin.py          # 관리자 API
 │   │   └── schemas.py            # Pydantic schemas
 │   ├── data_collector/           # Module 0: 데이터 수집
@@ -263,6 +265,7 @@ AI_Finance/
 │   │   ├── tuner.py              # Optuna 하이퍼파라미터 (ML)
 │   │   ├── ml_config.yaml        # ML/DL/RL 알고리즘 설정
 │   │   ├── signal_generator.py   # BUY/SELL/HOLD 시그널
+│   │   ├── backtester.py         # Module 5: 백테스팅 엔진
 │   │   ├── deep_learning/        # Module 4a: 딥러닝
 │   │   │   ├── architectures.py  # LSTM, Transformer 모델 아키텍처
 │   │   │   ├── dataset.py        # 시퀀스 데이터셋 생성
@@ -402,6 +405,13 @@ POST /ml/train                        # 모델 학습
 POST /ml/predict/{code}               # 종목 예측
 GET  /ml/models                       # 모델 목록
 GET  /ml/predictions                  # 예측 결과
+POST /backtest/run                    # 백테스트 실행
+GET  /backtest/runs                   # 백테스트 이력
+GET  /backtest/runs/{id}              # 백테스트 상세
+GET  /backtest/runs/{id}/trades       # 거래 로그
+GET  /backtest/runs/{id}/equity       # 에쿼티 커브
+DELETE /backtest/runs/{id}            # 백테스트 삭제
+POST /backtest/compare                # 복수 백테스트 비교
 GET  /admin/health                    # 헬스체크
 ```
 
@@ -428,6 +438,6 @@ GET  /admin/health                    # 헬스체크
 > | **출력** | 확률 (UP 62%) | 행동 (BUY / SELL / HOLD) |
 > | **모델** | LSTM, Transformer | DQN, PPO (신경망 + RL) |
 > | **학습** | 과거 데이터 한 번 | 환경과 반복 상호작용 |
-- [ ] Phase 9 — 리포트 생성 + 구독 서비스 (ML+DL 통합 시그널 + 이메일/카카오톡/Slack 발송)
-- [ ] Phase 10 — 백테스팅 + 포트폴리오 최적화
-- [ ] Phase 11 — 매매 시스템 (모의투자 + 실매매) + 대시보드 고도화
+- [x] Phase 9 — 백테스팅 (시그널 앙상블 4방식, 포트폴리오 시뮬레이션, 성과 지표, Buy & Hold 벤치마크)
+- [ ] Phase 10 — 매매 시스템 (모의투자 + 실매매)
+- [ ] Phase 11 — 리포트 생성 + 구독 서비스 (ML+DL 통합 시그널 + 이메일/카카오톡/Slack 발송)

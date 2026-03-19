@@ -57,6 +57,7 @@ htmlcov/
 
 # 문서
 docs/
+deliverables/
 
 # Docker
 postgres_data/

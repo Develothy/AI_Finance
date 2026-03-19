@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routes import stock_router, indicator_router, admin_router, ml_router, fundamental_router, macro_router, news_router, disclosure_router
+from api.routes import stock_router, indicator_router, admin_router, ml_router, fundamental_router, macro_router, news_router, disclosure_router, backtest_router
 from config import settings
 from db import database
 import models  # noqa: F401 — ModelBase에 모든 모델 등록
@@ -22,7 +22,7 @@ database.create_tables()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """앱 시작/종료 시 스케줄러 관리"""
+    # 앱 시작/종료 시 스케줄러 관리
     from scheduler import JobScheduler, SCHEDULER_AVAILABLE
     from services.scheduler_service import SchedulerService
 
@@ -77,11 +77,12 @@ app.include_router(fundamental_router)
 app.include_router(macro_router)
 app.include_router(news_router)
 app.include_router(disclosure_router)
+app.include_router(backtest_router)
 
 
 @app.get("/")
 def root():
-    """헬스 체크"""
+    # 헬스 체크
     return {"status": "ok", "message": "퀀트 플랫폼 API"}
 
 

@@ -670,6 +670,100 @@ class SupplyDemandResponse(BaseModel):
 
 
 # ============================================================
+# 백테스트 스키마 (M5)
+# ============================================================
+
+class BacktestRunRequest(BaseModel):
+    market: str = "KOSPI"
+    codes: Optional[list[str]] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    model_ids: Optional[list[int]] = None
+    aggregation_method: str = "majority_vote"
+    initial_capital: float = 10_000_000
+    transaction_fee: float = 0.00015
+    tax_rate: float = 0.0023
+    max_position_pct: float = 0.2
+    name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_aggregation(self):
+        valid = {"majority_vote", "weighted_vote", "probability_avg", "unanimous"}
+        if self.aggregation_method not in valid:
+            raise ValueError(f"aggregation_method는 {valid} 중 하나여야 합니다")
+        return self
+
+
+class BacktestCompareRequest(BaseModel):
+    run_ids: list[int]
+
+
+class BacktestMetricsResponse(BaseModel):
+    total_return: Optional[float] = None
+    annualized_return: Optional[float] = None
+    sharpe_ratio: Optional[float] = None
+    sortino_ratio: Optional[float] = None
+    max_drawdown: Optional[float] = None
+    calmar_ratio: Optional[float] = None
+    win_rate: Optional[float] = None
+    profit_factor: Optional[float] = None
+    total_trades: Optional[int] = None
+    benchmark_return: Optional[float] = None
+    alpha: Optional[float] = None
+
+
+class BacktestRunResponse(BaseModel):
+    id: int
+    name: Optional[str] = None
+    market: Optional[str] = None
+    strategy: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    initial_capital: Optional[float] = None
+    transaction_fee: Optional[float] = None
+    tax_rate: Optional[float] = None
+    codes: list[str] = []
+    config: dict = {}
+    status: Optional[str] = None
+    error_message: Optional[str] = None
+    metrics: BacktestMetricsResponse = BacktestMetricsResponse()
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class BacktestTradeResponse(BaseModel):
+    id: int
+    run_id: int
+    market: Optional[str] = None
+    code: Optional[str] = None
+    trade_date: Optional[str] = None
+    action: Optional[str] = None
+    price: Optional[float] = None
+    shares: Optional[int] = None
+    amount: Optional[float] = None
+    fee: Optional[float] = None
+    tax: Optional[float] = None
+    signal_source: Optional[str] = None
+    signal_confidence: Optional[float] = None
+    probability_up: Optional[float] = None
+    cash_after: Optional[float] = None
+    portfolio_value_after: Optional[float] = None
+
+
+class BacktestDailyResponse(BaseModel):
+    date: Optional[str] = None
+    portfolio_value: Optional[float] = None
+    cash: Optional[float] = None
+    positions_value: Optional[float] = None
+    daily_return: Optional[float] = None
+    cumulative_return: Optional[float] = None
+    drawdown: Optional[float] = None
+    benchmark_value: Optional[float] = None
+    benchmark_return: Optional[float] = None
+
+
+# ============================================================
 # 즉시실행 Request
 # ============================================================
 

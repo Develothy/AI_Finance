@@ -6,6 +6,7 @@ from models.macro import MacroIndicator
 from models.news import NewsSentiment
 from models.disclosure import DartDisclosure, KrxSupplyDemand
 from models.alternative import AlternativeData
+from models.backtest import BacktestRun, BacktestTrade, BacktestDaily
 
 __all__ = [
     "StockPrice",
@@ -25,4 +26,7 @@ __all__ = [
     "DartDisclosure",
     "KrxSupplyDemand",
     "AlternativeData",
+    "BacktestRun",
+    "BacktestTrade",
+    "BacktestDaily",
 ]

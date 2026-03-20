@@ -143,9 +143,9 @@ class BacktestService:
                 })
 
                 logger.info(
-                    "백테스트 완료: %s (종목 %d개, 거래 %d건, 수익률 %.2f%%)",
-                    name, len(codes), result.metrics.get("total_trades", 0),
-                    result.metrics.get("total_return", 0) * 100,
+                    f"백테스트 완료: {name} (종목 {len(codes)}개, "
+                    f"거래 {result.metrics.get('total_trades', 0)}건, "
+                    f"수익률 {result.metrics.get('total_return', 0) * 100:.2f}%)"
                 )
 
                 return self._run_to_dict(bt_repo.get_run(run_id))
@@ -156,7 +156,7 @@ class BacktestService:
                     "error_message": str(e)[:1000],
                     "finished_at": datetime.now(),
                 })
-                logger.error("백테스트 실패: %s — %s", name, e)
+                logger.error(f"백테스트 실패: {name} — {e}")
                 raise
 
     # ============================================================
@@ -280,7 +280,7 @@ class BacktestService:
                 ]
             except Exception as e:
                 participant["error_message"] = str(e)[:500]
-                logger.warning("레이스 모델 실패: %s — %s", meta["model_name"], e)
+                logger.warning(f"레이스 모델 실패: {meta['model_name']} — {e}")
             participants.append(participant)
 
         summary = self._build_race_summary(participants)

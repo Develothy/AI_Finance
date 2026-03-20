@@ -1,10 +1,11 @@
 """레이스 페이지 — 모델 레이스 + 종목 레이스"""
 
+import json
 from datetime import datetime, timedelta
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 from admin.api.client import admin_client
 from admin.pages.components import inject_custom_css, pct
@@ -147,25 +148,15 @@ def _render_model_race_result(result: dict):
 
     st.markdown("---")
 
-    # 레이싱 애니메이션
+    # 레이싱 바 애니메이션
     st.subheader("레이싱")
     _render_racing_bars(participants, race_type="model")
 
     st.markdown("---")
 
-    # 에쿼티 커브 차트
+    # 에쿼티 커브 차트 (애니메이션)
     st.subheader("에쿼티 커브")
-    _render_model_equity_chart(participants)
-
-    st.markdown("---")
-
-    # 성과 지표 테이블
-    st.subheader("성과 지표")
-    _render_model_metrics_table(participants)
-
-
-def _render_model_equity_chart(participants: list[dict]):
-    fig = go.Figure()
+    chart_data = []
     for p in participants:
         if p.get("status") != "success" or not p.get("equity_curve"):
             continue
@@ -174,21 +165,20 @@ def _render_model_equity_chart(participants: list[dict]):
         emoji = MODEL_EMOJIS.get(algo, "")
         dates = [e["date"] for e in p["equity_curve"]]
         returns = [(e.get("cumulative_return") or 0) * 100 for e in p["equity_curve"]]
-        fig.add_trace(go.Scatter(
-            x=dates, y=returns,
-            name=f"{emoji} {p.get('model_name', algo)}",
-            mode="lines",
-            line=dict(color=color, width=2),
-        ))
-    fig.update_layout(
-        yaxis_title="누적 수익률 (%)",
-        xaxis_title="날짜",
-        hovermode="x unified",
-        template="plotly_white",
-        height=400,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        chart_data.append({
+            "name": f"{emoji} {p.get('model_name', algo)}",
+            "dates": dates,
+            "returns": returns,
+            "color": color,
+            "emoji": emoji,
+        })
+    _render_animated_equity_chart(chart_data, key="model")
+
+    st.markdown("---")
+
+    # 성과 지표 테이블
+    st.subheader("성과 지표")
+    _render_model_metrics_table(participants)
 
 
 def _render_model_metrics_table(participants: list[dict]):
@@ -271,25 +261,15 @@ def _render_stock_race_result(result: dict):
 
     st.markdown("---")
 
-    # 레이싱 애니메이션
+    # 레이싱 바 애니메이션
     st.subheader("레이싱")
     _render_racing_bars(participants, race_type="stock")
 
     st.markdown("---")
 
-    # 종가 수익률 차트
+    # 종가 수익률 차트 (애니메이션)
     st.subheader("종가 수익률")
-    _render_stock_equity_chart(participants)
-
-    st.markdown("---")
-
-    # 최종 수익률 테이블
-    st.subheader("최종 수익률")
-    _render_stock_results_table(participants)
-
-
-def _render_stock_equity_chart(participants: list[dict]):
-    fig = go.Figure()
+    chart_data = []
     for i, p in enumerate(participants):
         if not p.get("equity_curve"):
             continue
@@ -298,21 +278,20 @@ def _render_stock_equity_chart(participants: list[dict]):
         name = p.get("name") or p.get("code", "?")
         dates = [e["date"] for e in p["equity_curve"]]
         returns = [(e.get("cumulative_return") or 0) * 100 for e in p["equity_curve"]]
-        fig.add_trace(go.Scatter(
-            x=dates, y=returns,
-            name=f"{emoji} {name}",
-            mode="lines",
-            line=dict(color=color, width=2),
-        ))
-    fig.update_layout(
-        yaxis_title="누적 수익률 (%)",
-        xaxis_title="날짜",
-        hovermode="x unified",
-        template="plotly_white",
-        height=400,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        chart_data.append({
+            "name": f"{emoji} {name}",
+            "dates": dates,
+            "returns": returns,
+            "color": color,
+            "emoji": emoji,
+        })
+    _render_animated_equity_chart(chart_data, key="stock")
+
+    st.markdown("---")
+
+    # 최종 수익률 테이블
+    st.subheader("최종 수익률")
+    _render_stock_results_table(participants)
 
 
 def _render_stock_results_table(participants: list[dict]):
@@ -332,14 +311,13 @@ def _render_stock_results_table(participants: list[dict]):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 공통 — 레이싱 바 애니메이션
+# 공통 — 레이싱 바 애니메이션 (JS)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _render_racing_bars(participants: list[dict], race_type: str = "model"):
-    """수익률 기반 레이싱 바를 HTML로 렌더링"""
+    """수익률 기반 레이싱 바 — JS 애니메이션으로 0→최종값"""
 
-    # 수익률 수집
-    returns = []
+    items = []
     for i, p in enumerate(participants):
         if race_type == "model":
             ret = (p.get("metrics") or {}).get("total_return")
@@ -347,60 +325,285 @@ def _render_racing_bars(participants: list[dict], race_type: str = "model"):
             algo = p.get("algorithm", "unknown")
             emoji = MODEL_EMOJIS.get(algo, "\U0001f3c3")
             color = RACE_COLORS.get(algo, "#888")
+            failed = p.get("status") != "success"
         else:
             ret = p.get("total_return")
             name = p.get("name") or p.get("code", "?")
             emoji = STOCK_EMOJIS[i % len(STOCK_EMOJIS)]
             color = STOCK_COLORS[i % len(STOCK_COLORS)]
+            failed = bool(p.get("error_message"))
 
-        returns.append({
+        items.append({
             "name": name,
-            "return": ret if ret is not None else 0,
+            "ret": float(ret) if ret is not None else 0,
             "emoji": emoji,
             "color": color,
-            "failed": (race_type == "model" and p.get("status") != "success")
-                      or (race_type == "stock" and p.get("error_message")),
+            "failed": failed,
         })
 
-    if not returns:
+    if not items:
         st.info("레이스 결과가 없습니다.")
         return
 
-    # 정규화: min→5%, max→95%
-    vals = [r["return"] for r in returns]
-    min_val = min(vals)
-    max_val = max(vals)
-    val_range = max_val - min_val if max_val != min_val else 1
+    items_json = json.dumps(items, ensure_ascii=False)
+    row_h = 46
+    total_h = len(items) * row_h + 30
 
-    html_parts = [
-        '<div style="padding:12px 0;">',
-    ]
+    html = f"""
+    <div id="raceBarContainer" style="padding:8px 0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;"></div>
+    <script>
+    (function() {{
+      const items = {items_json};
+      const container = document.getElementById('raceBarContainer');
 
-    # 수익률 내림차순 정렬
-    sorted_returns = sorted(returns, key=lambda r: r["return"], reverse=True)
+      // 정렬: 수익률 내림차순
+      items.sort((a, b) => b.ret - a.ret);
 
-    for r in sorted_returns:
-        if r["failed"]:
-            bar_pct = 0
-            ret_display = "FAIL"
-            opacity = "0.4"
-        else:
-            bar_pct = 5 + ((r["return"] - min_val) / val_range) * 90
-            ret_display = f"{r['return'] * 100:+.1f}%"
-            opacity = "1"
+      // 정규화: 0 기준 비례
+      const absMax = Math.max(...items.map(d => Math.abs(d.ret)), 0.001);
 
-        html_parts.append(f'''
-        <div style="margin:6px 0;opacity:{opacity};">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="width:140px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</span>
-            <div style="flex:1;background:#f0f0f0;border-radius:8px;height:36px;position:relative;overflow:hidden;">
-              <div style="width:{bar_pct:.1f}%;background:linear-gradient(90deg,{r["color"]}cc,{r["color"]});height:100%;border-radius:8px;transition:width 1.5s ease-out;"></div>
-              <span style="position:absolute;left:{bar_pct:.1f}%;top:50%;font-size:24px;transform:translate(-50%,-50%) scaleX(-1);filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3));">{r["emoji"]}</span>
-            </div>
-            <span style="width:80px;text-align:right;font-size:13px;font-weight:600;">{ret_display}</span>
-          </div>
-        </div>
-        ''')
+      // 행 생성
+      const rows = [];
+      items.forEach((d, idx) => {{
+        const row = document.createElement('div');
+        row.style.cssText = 'margin:5px 0;display:flex;align-items:center;gap:8px;opacity:' + (d.failed ? '0.4' : '1');
 
-    html_parts.append('</div>')
-    st.markdown("".join(html_parts), unsafe_allow_html=True)
+        const label = document.createElement('span');
+        label.style.cssText = 'width:140px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;';
+        label.textContent = d.name;
+
+        const track = document.createElement('div');
+        track.style.cssText = 'flex:1;background:#f0f0f0;border-radius:8px;height:36px;position:relative;overflow:hidden;';
+
+        const bar = document.createElement('div');
+        bar.style.cssText = 'width:0%;height:100%;border-radius:8px;background:linear-gradient(90deg,' + d.color + 'cc,' + d.color + ');transition:none;';
+
+        const emojiSpan = document.createElement('span');
+        emojiSpan.style.cssText = 'position:absolute;left:0%;top:50%;font-size:24px;transform:translate(-50%,-50%) scaleX(-1);filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3));transition:none;';
+        emojiSpan.textContent = d.emoji;
+
+        track.appendChild(bar);
+        track.appendChild(emojiSpan);
+
+        const retLabel = document.createElement('span');
+        retLabel.style.cssText = 'width:80px;text-align:right;font-size:13px;font-weight:600;flex-shrink:0;';
+        retLabel.textContent = d.failed ? 'FAIL' : (d.ret * 100).toFixed(1) + '%';
+
+        row.appendChild(label);
+        row.appendChild(track);
+        row.appendChild(retLabel);
+        container.appendChild(row);
+
+        // 목표 퍼센트
+        let targetPct;
+        if (d.failed) {{
+          targetPct = 0;
+        }} else if (d.ret >= 0) {{
+          targetPct = 8 + (d.ret / absMax) * 87;
+        }} else {{
+          targetPct = Math.max(3, 8 - (Math.abs(d.ret) / absMax) * 5);
+        }}
+
+        rows.push({{ bar, emojiSpan, targetPct, delay: idx * 150 }});
+      }});
+
+      // 애니메이션: 3초에 걸쳐 0→목표
+      const DURATION = 3000;
+      const start = performance.now();
+
+      function tick(now) {{
+        const elapsed = now - start;
+        let allDone = true;
+
+        rows.forEach(r => {{
+          const t = Math.max(0, Math.min(1, (elapsed - r.delay) / DURATION));
+          // ease-out cubic
+          const ease = 1 - Math.pow(1 - t, 3);
+          const pct = ease * r.targetPct;
+          r.bar.style.width = pct.toFixed(1) + '%';
+          r.emojiSpan.style.left = pct.toFixed(1) + '%';
+          if (t < 1) allDone = false;
+        }});
+
+        if (!allDone) requestAnimationFrame(tick);
+      }}
+
+      requestAnimationFrame(tick);
+    }})();
+    </script>
+    """
+    components.html(html, height=total_h)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 공통 — 에쿼티 커브 애니메이션 (Canvas)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _render_animated_equity_chart(chart_data: list[dict], key: str = ""):
+    """좌→우 7초 라인 드로잉 애니메이션 + 이모지 헤드"""
+
+    if not chart_data:
+        st.info("차트 데이터가 없습니다.")
+        return
+
+    chart_json = json.dumps(chart_data, ensure_ascii=False)
+    uid = f"ec_{key}_{id(chart_data)}"
+
+    html = f"""
+    <div style="position:relative;width:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
+      <canvas id="{uid}" style="width:100%;height:400px;display:block;"></canvas>
+      <div id="{uid}_leg" style="display:flex;flex-wrap:wrap;gap:14px;justify-content:center;padding:6px 0;font-size:12px;"></div>
+    </div>
+    <script>
+    (function() {{
+      const data = {chart_json};
+      const canvas = document.getElementById('{uid}');
+      const ctx = canvas.getContext('2d');
+      const legendDiv = document.getElementById('{uid}_leg');
+
+      // HiDPI
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      const W = rect.width, H = rect.height;
+
+      const pad = {{top: 24, right: 60, bottom: 40, left: 58}};
+      const cw = W - pad.left - pad.right;
+      const ch = H - pad.top - pad.bottom;
+
+      // 전체 날짜 및 값 범위
+      let allDates = [];
+      let minY = 0, maxY = 0;
+      data.forEach(d => {{
+        if (d.dates.length > allDates.length) allDates = d.dates;
+        d.returns.forEach(v => {{ if (v < minY) minY = v; if (v > maxY) maxY = v; }});
+      }});
+      const yPad = Math.max(Math.abs(maxY - minY) * 0.12, 0.5);
+      minY -= yPad; maxY += yPad;
+      const totalPts = allDates.length;
+      if (totalPts < 2) return;
+
+      // 범례
+      data.forEach(d => {{
+        const el = document.createElement('span');
+        el.innerHTML = '<span style="display:inline-block;width:14px;height:3px;background:' + d.color + ';margin-right:4px;vertical-align:middle;border-radius:2px;"></span>' + d.name;
+        legendDiv.appendChild(el);
+      }});
+
+      function xPos(i) {{ return pad.left + (i / (totalPts - 1)) * cw; }}
+      function yPos(v) {{ return pad.top + (1 - (v - minY) / (maxY - minY)) * ch; }}
+
+      // 그리드를 오프스크린 캔버스에 미리 그려놓기
+      const gridCanvas = document.createElement('canvas');
+      gridCanvas.width = canvas.width;
+      gridCanvas.height = canvas.height;
+      const gctx = gridCanvas.getContext('2d');
+      gctx.scale(dpr, dpr);
+
+      // 그리드 그리기
+      gctx.strokeStyle = '#e8e8e8'; gctx.lineWidth = 0.5;
+      const yTicks = 5;
+      for (let i = 0; i <= yTicks; i++) {{
+        const v = minY + (maxY - minY) * i / yTicks;
+        const y = yPos(v);
+        gctx.beginPath(); gctx.moveTo(pad.left, y); gctx.lineTo(W - pad.right, y); gctx.stroke();
+        gctx.fillStyle = '#888'; gctx.font = '11px sans-serif'; gctx.textAlign = 'right';
+        gctx.fillText(v.toFixed(1) + '%', pad.left - 8, y + 4);
+      }}
+
+      // 0% 기준선
+      if (minY <= 0 && maxY >= 0) {{
+        gctx.strokeStyle = '#aaa'; gctx.lineWidth = 1; gctx.setLineDash([5,3]);
+        const y0 = yPos(0);
+        gctx.beginPath(); gctx.moveTo(pad.left, y0); gctx.lineTo(W - pad.right, y0); gctx.stroke();
+        gctx.setLineDash([]);
+      }}
+
+      // X축 라벨
+      const labelCount = Math.min(7, totalPts);
+      gctx.fillStyle = '#888'; gctx.font = '10px sans-serif'; gctx.textAlign = 'center';
+      for (let i = 0; i < labelCount; i++) {{
+        const idx = Math.round(i * (totalPts - 1) / (labelCount - 1));
+        gctx.fillText(allDates[idx] ? allDates[idx].slice(5) : '', xPos(idx), H - pad.bottom + 18);
+      }}
+
+      // 차트 영역 테두리
+      gctx.strokeStyle = '#ccc'; gctx.lineWidth = 1;
+      gctx.strokeRect(pad.left, pad.top, cw, ch);
+
+      // 애니메이션
+      const DURATION = 7000;
+      let startTime = null;
+
+      function animate(ts) {{
+        if (!startTime) startTime = ts;
+        const elapsed = ts - startTime;
+        const progress = Math.min(elapsed / DURATION, 1);
+        // ease-out quad — 부드러운 감속
+        const ease = 1 - Math.pow(1 - progress, 2.5);
+        // 실수 인덱스 (소수점까지) — 보간으로 부드럽게
+        const drawIdx = ease * (totalPts - 1);
+
+        // 그리드 복사
+        ctx.clearRect(0, 0, W, H);
+        ctx.drawImage(gridCanvas, 0, 0, canvas.width, canvas.height, 0, 0, W, H);
+
+        data.forEach(d => {{
+          const maxI = Math.min(Math.floor(drawIdx), d.returns.length - 1);
+          if (maxI < 1) return;
+
+          // 라인 그리기
+          ctx.strokeStyle = d.color;
+          ctx.lineWidth = 2.5;
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(xPos(0), yPos(d.returns[0]));
+          for (let i = 1; i <= maxI; i++) {{
+            ctx.lineTo(xPos(i), yPos(d.returns[i]));
+          }}
+
+          // 마지막 구간 보간 (부드러운 이동)
+          const frac = drawIdx - maxI;
+          if (frac > 0 && maxI + 1 < d.returns.length) {{
+            const interpY = d.returns[maxI] + (d.returns[maxI + 1] - d.returns[maxI]) * frac;
+            ctx.lineTo(xPos(drawIdx), yPos(interpY));
+          }}
+          ctx.stroke();
+
+          // 선두: 이모지 헤드
+          const headIdx = Math.min(drawIdx, d.returns.length - 1);
+          const headI = Math.floor(headIdx);
+          const headFrac = headIdx - headI;
+          let headVal = d.returns[headI];
+          if (headFrac > 0 && headI + 1 < d.returns.length) {{
+            headVal = d.returns[headI] + (d.returns[headI + 1] - d.returns[headI]) * headFrac;
+          }}
+          const hx = xPos(headIdx);
+          const hy = yPos(headVal);
+
+          // 이모지
+          ctx.font = '18px serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(d.emoji || '', hx, hy - 12);
+
+          // 값 라벨
+          if (progress > 0.15) {{
+            ctx.fillStyle = d.color;
+            ctx.font = 'bold 11px sans-serif';
+            ctx.textAlign = 'left';
+            const label = headVal.toFixed(1) + '%';
+            ctx.fillText(label, hx + 14, hy + 4);
+          }}
+        }});
+
+        if (progress < 1) requestAnimationFrame(animate);
+      }}
+
+      requestAnimationFrame(animate);
+    }})();
+    </script>
+    """
+    components.html(html, height=450)

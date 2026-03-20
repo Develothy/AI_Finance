@@ -1129,7 +1129,7 @@ class FeatureEngineer:
         alt_result = alt_df[merge_cols].copy()
         for col in _ALTERNATIVE_FEATURE_COLUMNS:
             if col in alt_result.columns:
-                alt_result[col] = alt_result[col].round(4)
+                alt_result[col] = pd.to_numeric(alt_result[col], errors="coerce").round(4)
 
         df = df.merge(alt_result, on="date", how="left")
 

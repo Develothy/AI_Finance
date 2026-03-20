@@ -29,6 +29,7 @@ def run_training_schedule(
     optuna_trials: int = 50,
     days_back: int = 7,
     base_date: Optional[str] = None,
+    target_codes: list[str] = None,
 ) -> dict:
     """
     ML 학습 스케줄 실행 (4-Step 파이프라인 + 학습)
@@ -169,6 +170,7 @@ def run_training_schedule(
                         algorithm=algo,
                         target_column=target,
                         optuna_trials=optuna_trials,
+                        target_codes=target_codes,
                     )
                     trained += 1
                     metrics = result.get("metrics", {})

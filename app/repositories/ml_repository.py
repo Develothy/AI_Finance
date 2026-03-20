@@ -86,12 +86,15 @@ class MLRepository:
         market: str,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        codes: list[str] = None,
     ) -> list[FeatureStore]:
-        """마켓별 전체 피처 조회 (학습용)"""
+        """마켓별 피처 조회 (학습용). codes 지정 시 해당 종목만."""
         query = self.session.query(FeatureStore).filter(
             FeatureStore.market == market,
             FeatureStore.target_class_1d.isnot(None),
         )
+        if codes:
+            query = query.filter(FeatureStore.code.in_(codes))
         if start_date:
             query = query.filter(FeatureStore.date >= start_date)
         if end_date:

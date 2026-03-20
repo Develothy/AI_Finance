@@ -61,6 +61,7 @@ class ModelTrainer:
         val_ratio: float = 0.15,
         optuna_trials: int = 50,
         feature_columns: list[str] = None,
+        target_codes: list[str] = None,
     ) -> dict:
         """
         모델 학습 실행
@@ -118,7 +119,7 @@ class ModelTrainer:
 
         try:
             # 2. 데이터 로드
-            df = self._load_data(market, features, target_column)
+            df = self._load_data(market, features, target_column, target_codes=target_codes)
             if len(df) < 100:
                 raise ValueError(f"학습 데이터 부족: {len(df)}행 (최소 100행)")
 
@@ -263,11 +264,12 @@ class ModelTrainer:
             logger.error(f"학습 실패: {e}", "train")
             raise
 
-    def _load_data(self, market: str, features: list[str], target_column: str) -> pd.DataFrame:
-        """feature_store에서 학습 데이터 로드"""
+    def _load_data(self, market: str, features: list[str], target_column: str,
+                   target_codes: list[str] = None) -> pd.DataFrame:
+        """feature_store에서 학습 데이터 로드. target_codes 지정 시 해당 종목만."""
         with database.session() as session:
             repo = MLRepository(session)
-            rows = repo.get_features_by_market(market)
+            rows = repo.get_features_by_market(market, codes=target_codes)
 
             if not rows:
                 raise ValueError(f"피처 데이터 없음: {market}")

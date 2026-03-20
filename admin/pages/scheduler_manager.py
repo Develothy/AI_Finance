@@ -21,6 +21,7 @@ STEP_TYPES = [
     ("alternative", "🔮 대안"),
     ("feature", "⚙️ 피처"),
     ("ml", "🤖 ML학습"),
+    ("predict", "🎯 예측"),
 ]
 
 STEP_ORDER = {st: i + 1 for i, (st, _) in enumerate(STEP_TYPES)}

@@ -31,6 +31,7 @@ STEP_REGISTRY = {
     "alternative":     {"order": 8,  "label": "대안"},
     "feature":         {"order": 9,  "label": "피처"},
     "ml":              {"order": 10, "label": "ML학습"},
+    "predict":         {"order": 11, "label": "예측"},
 }
 
 
@@ -138,8 +139,29 @@ def _handle_ml(market, sector, days_back, config, ctx):
         include_feature_compute=False,
         optuna_trials=config.get("optuna_trials", 50),
         days_back=days_back,
+        target_codes=ctx.get("target_codes"),
     )
     return {"saved": ml_result.get("trained", 0), "summary": f"{ml_result.get('trained', 0)}모델"}
+
+
+def _handle_predict(market, sector, days_back, config, ctx):
+    from ml.predictor import Predictor
+    predictor = Predictor()
+    codes = ctx.get("target_codes") or []
+    predicted = 0
+    failed = 0
+    signals = {"BUY": 0, "SELL": 0, "HOLD": 0}
+    for code in codes:
+        try:
+            results = predictor.predict_single(code=code, market=market)
+            predicted += 1
+            for r in results:
+                sig = r.get("signal", "HOLD")
+                signals[sig] = signals.get(sig, 0) + 1
+        except Exception:
+            failed += 1
+    summary = f"{predicted}/{len(codes)}종목 (B:{signals['BUY']} S:{signals['SELL']} H:{signals['HOLD']})"
+    return {"saved": predicted, "summary": summary}
 
 
 STEP_HANDLERS = {
@@ -153,6 +175,7 @@ STEP_HANDLERS = {
     "alternative": _handle_alternative,
     "feature": _handle_feature,
     "ml": _handle_ml,
+    "predict": _handle_predict,
 }
 
 
@@ -306,7 +329,12 @@ class SchedulerService:
                 for s in steps
             ]
 
-            log = repo.create_log({"job_id": job.id, "started_at": datetime.now(), "status": "running"})
+            log = repo.create_log({
+                "job_id": job.id,
+                "started_at": datetime.now(),
+                "status": "running",
+                "trigger_by": "manual",
+            })
             log_id = log.id
             job_market = job.market
             job_sector = job.sector

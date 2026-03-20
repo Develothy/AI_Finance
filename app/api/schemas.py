@@ -764,6 +764,97 @@ class BacktestDailyResponse(BaseModel):
 
 
 # ============================================================
+# 모델 레이스 스키마 (M5)
+# ============================================================
+
+class ModelRaceRequest(BaseModel):
+    market: str = "KOSPI"
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    codes: Optional[list[str]] = None
+    model_ids: Optional[list[int]] = None
+    initial_capital: float = 10_000_000
+    transaction_fee: float = 0.00015
+    tax_rate: float = 0.0023
+    max_position_pct: float = 0.2
+
+
+class StockRaceRequest(BaseModel):
+    market: str = "KOSPI"
+    codes: list[str]
+    period_days: int = 30
+
+
+class RaceEquityPoint(BaseModel):
+    date: Optional[str] = None
+    portfolio_value: Optional[float] = None
+    cumulative_return: Optional[float] = None
+    drawdown: Optional[float] = None
+    close: Optional[float] = None
+
+
+class ModelRaceParticipant(BaseModel):
+    model_id: Optional[int] = None
+    model_name: Optional[str] = None
+    algorithm: Optional[str] = None
+    run_id: Optional[int] = None
+    status: Optional[str] = None
+    metrics: BacktestMetricsResponse = BacktestMetricsResponse()
+    equity_curve: list[RaceEquityPoint] = []
+    error_message: Optional[str] = None
+
+
+class StockRaceParticipant(BaseModel):
+    code: Optional[str] = None
+    name: Optional[str] = None
+    equity_curve: list[RaceEquityPoint] = []
+    total_return: Optional[float] = None
+    error_message: Optional[str] = None
+
+
+class ModelRaceSummary(BaseModel):
+    total_models: int = 0
+    success_count: int = 0
+    failed_count: int = 0
+    best_model: Optional[str] = None
+    best_return: Optional[float] = None
+    worst_model: Optional[str] = None
+    worst_return: Optional[float] = None
+
+
+class StockRaceSummary(BaseModel):
+    total_stocks: int = 0
+    success_count: int = 0
+    failed_count: int = 0
+    best_stock: Optional[str] = None
+    best_return: Optional[float] = None
+    worst_stock: Optional[str] = None
+    worst_return: Optional[float] = None
+
+
+class ModelRaceResponse(BaseModel):
+    race_group: str
+    race_type: str = "model"
+    market: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    initial_capital: Optional[float] = None
+    summary: ModelRaceSummary = ModelRaceSummary()
+    participants: list[ModelRaceParticipant] = []
+
+
+class StockRaceResponse(BaseModel):
+    race_group: str
+    race_type: str = "stock"
+    market: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    period_days: Optional[int] = None
+    summary: StockRaceSummary = StockRaceSummary()
+    participants: list[StockRaceParticipant] = []
+
+
+# ============================================================
 # 즉시실행 Request
 # ============================================================
 

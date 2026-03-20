@@ -21,6 +21,7 @@ from admin.pages import (
     server_status, db_status, log_viewer, config_viewer, scheduler_manager,
     fundamental_manager, news_manager, disclosure_manager,
     ml_train_manager, ml_models, ml_predictions,
+    race,
 )
 
 PAGES = {
@@ -35,6 +36,7 @@ PAGES = {
     "ML 학습 관리": ml_train_manager,
     "ML 모델 결과": ml_models,
     "ML 예측 테스트": ml_predictions,
+    "레이스": race,
 }
 
 st.sidebar.title("퀀트 관리자")

@@ -41,6 +41,12 @@ class BacktestRepository:
             query = query.filter(BacktestRun.market == market)
         return query.order_by(BacktestRun.created_at.desc()).limit(limit).all()
 
+    def get_runs_by_race_group(self, race_group: str) -> list[BacktestRun]:
+        """레이스 그룹의 모든 실행 조회"""
+        return self.session.query(BacktestRun).filter(
+            BacktestRun.race_group == race_group
+        ).order_by(BacktestRun.id).all()
+
     def delete_run(self, run_id: int) -> bool:
         run = self.get_run(run_id)
         if run:

@@ -270,4 +270,23 @@ class AdminAPIClient:
         return _self._get(f"/disclosure/supply/{market}/{code}", params)
 
 
+    # ── 레이스 ────────────────────────────────────────
+
+    def run_model_race(_self, data: dict) -> dict:
+        url = f"{_self.base_url}/backtest/race/model"
+        resp = requests.post(url, json=data, timeout=300)
+        resp.raise_for_status()
+        return resp.json()
+
+    def run_stock_race(_self, data: dict) -> dict:
+        url = f"{_self.base_url}/backtest/race/stock"
+        resp = requests.post(url, json=data, timeout=300)
+        resp.raise_for_status()
+        return resp.json()
+
+    @st.cache_data(ttl=30, show_spinner=False)
+    def get_race_results(_self, race_group: str) -> dict:
+        return _self._get(f"/backtest/race/{race_group}")
+
+
 admin_client = AdminAPIClient()

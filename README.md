@@ -70,7 +70,7 @@
 | 2 | 피처 엔지니어링 | 기술적 지표 + Phase 1~7 피처 생성 (75) | ✅ 완료 |
 | 3 | 머신러닝 | RF / XGBoost / LightGBM, Optuna 튜닝 | ✅ 완료 |
 | 4 | 딥러닝 + 강화학습 | LSTM, Transformer (Phase 8A), DQN, PPO (Phase 8B) | ✅ 완료 |
-| 5 | 백테스팅/포트폴리오 | 시그널 앙상블 백테스트, 성과 지표, 벤치마크 비교 | ✅ 완료 |
+| 5 | 백테스팅/포트폴리오 | 시그널 앙상블 백테스트, 성과 지표, 벤치마크 비교, 모델/종목 레이스 | ✅ 완료 |
 | 6 | 매매 시스템 | 모의투자 + 실매매 (KIS/Alpaca) | 🔲 예정 |
 | 7 | 사용자 대시보드 | 시장 현황, 종목 분석, 뉴스 센티먼트 (Streamlit :8501) | ✅ 완료 |
 | 8 | 관리자 대시보드 | 시스템 모니터링, ML/뉴스/공시/수급 관리 (Streamlit :8502) | ✅ 완료 |
@@ -305,7 +305,8 @@ AI_Finance/
 │       ├── disclosure_manager.py # DART 공시 + KRX 수급 관리
 │       ├── ml_train_manager.py   # ML 학습 관리
 │       ├── ml_models.py          # 학습된 모델 조회
-│       └── ml_predictions.py     # 예측 테스트
+│       ├── ml_predictions.py     # 예측 테스트
+│       └── race.py               # 모델/종목 레이스 (이모지 레이싱 애니메이션)
 ├── scripts/                         # 유틸리티 스크립트
 │   └── migrate_boolean_to_steps.py  # boolean→Step 마이그레이션
 ├── docs/                         # 프로젝트 문서
@@ -412,6 +413,9 @@ GET  /backtest/runs/{id}/trades       # 거래 로그
 GET  /backtest/runs/{id}/equity       # 에쿼티 커브
 DELETE /backtest/runs/{id}            # 백테스트 삭제
 POST /backtest/compare                # 복수 백테스트 비교
+POST /backtest/race/model             # 모델 레이스 (모델별 개별 백테스트 경주)
+POST /backtest/race/stock             # 종목 레이스 (종가 수익률 경주)
+GET  /backtest/race/{race_group}      # 레이스 결과 재조회
 GET  /admin/health                    # 헬스체크
 ```
 
@@ -438,6 +442,6 @@ GET  /admin/health                    # 헬스체크
 > | **출력** | 확률 (UP 62%) | 행동 (BUY / SELL / HOLD) |
 > | **모델** | LSTM, Transformer | DQN, PPO (신경망 + RL) |
 > | **학습** | 과거 데이터 한 번 | 환경과 반복 상호작용 |
-- [x] Phase 9 — 백테스팅 (시그널 앙상블 4방식, 포트폴리오 시뮬레이션, 성과 지표, Buy & Hold 벤치마크)
+- [x] Phase 9 — 백테스팅 (시그널 앙상블 4방식, 포트폴리오 시뮬레이션, 성과 지표, Buy & Hold 벤치마크, 모델/종목 레이스)
 - [ ] Phase 10 — 매매 시스템 (모의투자 + 실매매)
 - [ ] Phase 11 — 리포트 생성 + 구독 서비스 (ML+DL 통합 시그널 + 이메일/카카오톡/Slack 발송)

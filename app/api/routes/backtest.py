@@ -12,6 +12,10 @@ from api.schemas import (
     BacktestTradeResponse,
     BacktestDailyResponse,
     BacktestCompareRequest,
+    ModelRaceRequest,
+    ModelRaceResponse,
+    StockRaceRequest,
+    StockRaceResponse,
 )
 from services import backtest_service
 
@@ -109,3 +113,52 @@ def compare_runs(req: BacktestCompareRequest):
     """복수 백테스트 비교"""
     results = backtest_service.compare_runs(req.run_ids)
     return [BacktestRunResponse(**r) for r in results]
+
+
+# ============================================================
+# 모델 레이스
+# ============================================================
+
+@router.post("/race/model", response_model=ModelRaceResponse)
+def run_model_race(req: ModelRaceRequest):
+    """모델 레이스: 각 모델 개별 백테스트 후 수익률 경주 비교"""
+    try:
+        result = backtest_service.run_model_race(
+            market=req.market, start_date=req.start_date, end_date=req.end_date,
+            codes=req.codes, model_ids=req.model_ids,
+            initial_capital=req.initial_capital,
+            transaction_fee=req.transaction_fee, tax_rate=req.tax_rate,
+            max_position_pct=req.max_position_pct,
+        )
+        return ModelRaceResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"모델 레이스 실패: {e}")
+
+
+# ============================================================
+# 종목 레이스
+# ============================================================
+
+@router.post("/race/stock", response_model=StockRaceResponse)
+def run_stock_race(req: StockRaceRequest):
+    """종목 레이스: 종목별 종가 수익률 경주 비교"""
+    try:
+        result = backtest_service.run_stock_race(
+            market=req.market, codes=req.codes, period_days=req.period_days,
+        )
+        return StockRaceResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"종목 레이스 실패: {e}")
+
+
+@router.get("/race/{race_group}", response_model=ModelRaceResponse)
+def get_race_results(race_group: str):
+    """모델 레이스 결과 재조회"""
+    result = backtest_service.get_race_results(race_group)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"레이스 결과 없음: {race_group}")
+    return ModelRaceResponse(**result)

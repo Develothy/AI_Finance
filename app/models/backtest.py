@@ -59,6 +59,9 @@ class BacktestRun(ModelBase):
     benchmark_return = Column(Numeric(10, 6))
     alpha = Column(Numeric(10, 6))
 
+    # 모델 레이스
+    race_group = Column(String(36), nullable=True)          # UUID — 레이스 그룹 식별자
+
     # 실행 정보
     status = Column(String(20), default="running")         # running / success / failed
     error_message = Column(String(1000))
@@ -69,6 +72,7 @@ class BacktestRun(ModelBase):
     __table_args__ = (
         Index("idx_backtest_run_market", "market", "status"),
         Index("idx_backtest_run_date", "start_date", "end_date"),
+        Index("idx_backtest_run_race_group", "race_group"),
     )
 
     def __repr__(self):

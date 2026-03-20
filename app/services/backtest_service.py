@@ -6,6 +6,7 @@
 """
 
 import json
+import uuid
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -39,6 +40,7 @@ class BacktestService:
         tax_rate: float = 0.0023,
         max_position_pct: float = 0.2,
         name: str | None = None,
+        race_group: str | None = None,
     ) -> dict:
         """백테스트 실행.
 
@@ -85,6 +87,7 @@ class BacktestService:
                 "transaction_fee": transaction_fee,
                 "tax_rate": tax_rate,
                 "codes_json": json.dumps(codes),
+                "race_group": race_group,
                 "status": "running",
                 "started_at": datetime.now(),
             })
@@ -200,6 +203,271 @@ class BacktestService:
                 if run:
                     results.append(self._run_to_dict(run))
             return results
+
+    # ============================================================
+    # 모델 레이스
+    # ============================================================
+
+    def run_model_race(
+        self,
+        market: str,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        codes: list[str] | None = None,
+        model_ids: list[int] | None = None,
+        initial_capital: float = 10_000_000,
+        transaction_fee: float = 0.00015,
+        tax_rate: float = 0.0023,
+        max_position_pct: float = 0.2,
+    ) -> dict:
+        """모델 레이스: 각 모델을 개별 백테스트하여 수익률 경주 비교"""
+        race_group = str(uuid.uuid4())
+
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+
+        # 활성 모델 목록 조회
+        with database.session() as session:
+            ml_repo = MLRepository(session)
+            if model_ids:
+                models = [ml_repo.get_model(mid) for mid in model_ids]
+                models = [m for m in models if m]
+            else:
+                models = ml_repo.get_active_models(market=market)
+
+            if not models:
+                raise ValueError("레이스할 활성 모델이 없습니다")
+
+            model_meta = {
+                m.id: {"model_name": m.model_name, "algorithm": m.algorithm}
+                for m in models
+            }
+
+        # 각 모델별 개별 백테스트
+        participants = []
+        for model_id, meta in model_meta.items():
+            participant = {
+                "model_id": model_id,
+                "model_name": meta["model_name"],
+                "algorithm": meta["algorithm"],
+                "run_id": None,
+                "status": "failed",
+                "metrics": {},
+                "equity_curve": [],
+                "error_message": None,
+            }
+            try:
+                result = self.run_backtest(
+                    market=market, codes=codes,
+                    start_date=start_date, end_date=end_date,
+                    model_ids=[model_id], aggregation_method="majority_vote",
+                    initial_capital=initial_capital,
+                    transaction_fee=transaction_fee, tax_rate=tax_rate,
+                    max_position_pct=max_position_pct,
+                    name=f"race_{meta['algorithm']}_{model_id}",
+                    race_group=race_group,
+                )
+                participant["run_id"] = result["id"]
+                participant["status"] = result["status"]
+                participant["metrics"] = result.get("metrics", {})
+                equity = self.get_equity_curve(result["id"])
+                participant["equity_curve"] = [
+                    {"date": e.get("date"), "portfolio_value": e.get("portfolio_value"),
+                     "cumulative_return": e.get("cumulative_return"), "drawdown": e.get("drawdown")}
+                    for e in equity
+                ]
+            except Exception as e:
+                participant["error_message"] = str(e)[:500]
+                logger.warning("레이스 모델 실패: %s — %s", meta["model_name"], e)
+            participants.append(participant)
+
+        summary = self._build_race_summary(participants)
+        return {
+            "race_group": race_group, "race_type": "model",
+            "market": market, "start_date": start_date, "end_date": end_date,
+            "initial_capital": initial_capital,
+            "summary": summary, "participants": participants,
+        }
+
+    # ============================================================
+    # 종목 레이스
+    # ============================================================
+
+    def run_stock_race(
+        self,
+        market: str,
+        codes: list[str],
+        period_days: int = 30,
+    ) -> dict:
+        """종목 레이스: 종목별 종가 수익률 비교 (백테스트 엔진 미사용)"""
+        race_group = str(uuid.uuid4())
+
+        with database.session() as session:
+            stock_repo = StockRepository(session)
+
+            # 마지막 영업일 기준 end_date 결정
+            end_date = None
+            for code in codes:
+                latest = stock_repo.get_latest_price(code, market)
+                if latest:
+                    d = str(latest.date)
+                    if not end_date or d > end_date:
+                        end_date = d
+            if not end_date:
+                raise ValueError("가격 데이터가 없습니다")
+
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            start_dt = end_dt - timedelta(days=int(period_days * 1.5))  # 영업일 확보 여유
+            start_date = start_dt.strftime("%Y-%m-%d")
+
+            participants = []
+            for code in codes:
+                rows = stock_repo.get_prices(code, market, start_date, end_date)
+                if not rows:
+                    participants.append({
+                        "code": code, "name": code,
+                        "equity_curve": [], "total_return": None,
+                        "error_message": "가격 데이터 없음",
+                    })
+                    continue
+
+                # 날짜순 정렬
+                sorted_rows = sorted(rows, key=lambda r: r.date)
+
+                # period_days에 맞게 뒤에서 자르기
+                if len(sorted_rows) > period_days:
+                    sorted_rows = sorted_rows[-period_days:]
+
+                base_price = float(sorted_rows[0].close) if sorted_rows[0].close else None
+                if not base_price:
+                    participants.append({
+                        "code": code, "name": code,
+                        "equity_curve": [], "total_return": None,
+                        "error_message": "시작일 종가 없음",
+                    })
+                    continue
+
+                equity_curve = []
+                for r in sorted_rows:
+                    close = float(r.close) if r.close else base_price
+                    ret = (close - base_price) / base_price
+                    equity_curve.append({
+                        "date": str(r.date),
+                        "close": close,
+                        "cumulative_return": round(ret, 6),
+                    })
+
+                # 종목명 조회
+                info = stock_repo.get_info(code, market)
+                name = info.name if info else code
+
+                participants.append({
+                    "code": code,
+                    "name": name,
+                    "equity_curve": equity_curve,
+                    "total_return": equity_curve[-1]["cumulative_return"] if equity_curve else None,
+                    "error_message": None,
+                })
+
+        # 서머리
+        valid = [p for p in participants if p["total_return"] is not None]
+        summary = {
+            "total_stocks": len(participants),
+            "success_count": len(valid),
+            "failed_count": len(participants) - len(valid),
+            "best_stock": None, "best_return": None,
+            "worst_stock": None, "worst_return": None,
+        }
+        if valid:
+            best = max(valid, key=lambda p: p["total_return"])
+            worst = min(valid, key=lambda p: p["total_return"])
+            summary["best_stock"] = best["name"]
+            summary["best_return"] = best["total_return"]
+            summary["worst_stock"] = worst["name"]
+            summary["worst_return"] = worst["total_return"]
+
+        return {
+            "race_group": race_group, "race_type": "stock",
+            "market": market,
+            "start_date": participants[0]["equity_curve"][0]["date"] if valid and participants[0]["equity_curve"] else None,
+            "end_date": end_date,
+            "period_days": period_days,
+            "summary": summary, "participants": participants,
+        }
+
+    # ============================================================
+    # 레이스 결과 재조회
+    # ============================================================
+
+    def get_race_results(self, race_group: str) -> dict | None:
+        """모델 레이스 결과 재조회"""
+        with database.session() as session:
+            bt_repo = BacktestRepository(session)
+            ml_repo = MLRepository(session)
+            runs = bt_repo.get_runs_by_race_group(race_group)
+            if not runs:
+                return None
+
+            participants = []
+            for run in runs:
+                config = json.loads(run.config_json) if run.config_json else {}
+                mids = config.get("model_ids", [])
+                model_id = mids[0] if mids else None
+                model_name, algorithm = None, None
+                if model_id:
+                    model = ml_repo.get_model(model_id)
+                    if model:
+                        model_name, algorithm = model.model_name, model.algorithm
+
+                daily = bt_repo.get_daily(run.id)
+                equity_curve = [
+                    {"date": str(d.date),
+                     "portfolio_value": float(d.portfolio_value) if d.portfolio_value else None,
+                     "cumulative_return": float(d.cumulative_return) if d.cumulative_return else None,
+                     "drawdown": float(d.drawdown) if d.drawdown else None}
+                    for d in daily
+                ]
+                run_dict = self._run_to_dict(run)
+                participants.append({
+                    "model_id": model_id, "model_name": model_name,
+                    "algorithm": algorithm, "run_id": run.id,
+                    "status": run.status, "metrics": run_dict.get("metrics", {}),
+                    "equity_curve": equity_curve, "error_message": run.error_message,
+                })
+
+            summary = self._build_race_summary(participants)
+            first = runs[0]
+            return {
+                "race_group": race_group, "race_type": "model",
+                "market": first.market,
+                "start_date": str(first.start_date), "end_date": str(first.end_date),
+                "initial_capital": float(first.initial_capital) if first.initial_capital else None,
+                "summary": summary, "participants": participants,
+            }
+
+    @staticmethod
+    def _build_race_summary(participants: list[dict]) -> dict:
+        success_list = [p for p in participants if p.get("status") == "success"]
+        failed_list = [p for p in participants if p.get("status") != "success"]
+        summary = {
+            "total_models": len(participants), "success_count": len(success_list),
+            "failed_count": len(failed_list),
+            "best_model": None, "best_return": None,
+            "worst_model": None, "worst_return": None,
+        }
+        if success_list:
+            returns = [
+                (p.get("algorithm", ""), p["metrics"].get("total_return"))
+                for p in success_list if p.get("metrics", {}).get("total_return") is not None
+            ]
+            if returns:
+                best = max(returns, key=lambda x: x[1])
+                worst = min(returns, key=lambda x: x[1])
+                summary.update(best_model=best[0], best_return=best[1],
+                               worst_model=worst[0], worst_return=worst[1])
+        return summary
 
     # ============================================================
     # 데이터 로딩 헬퍼
@@ -330,6 +598,7 @@ class BacktestService:
             "tax_rate": float(r.tax_rate) if r.tax_rate else None,
             "codes": json.loads(r.codes_json) if r.codes_json else [],
             "config": json.loads(r.config_json) if r.config_json else {},
+            "race_group": r.race_group,
             "status": r.status,
             "error_message": r.error_message,
             "metrics": {

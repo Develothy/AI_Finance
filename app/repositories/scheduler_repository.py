@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
-from models import ScheduleJob, ScheduleLog, JobStep
+from models import ScheduleJob, ScheduleLog, JobStep, PipelineStepLog
 
 
 class SchedulerRepository:
@@ -108,3 +108,27 @@ class SchedulerRepository:
             steps.append(step)
         self.session.flush()
         return steps
+
+    # ── PipelineStepLog ──
+
+    def create_step_log(self, data: dict) -> PipelineStepLog:
+        step_log = PipelineStepLog(**data)
+        self.session.add(step_log)
+        self.session.flush()
+        return step_log
+
+    def get_step_logs_for_log(self, log_id: int) -> list[PipelineStepLog]:
+        return (self.session.query(PipelineStepLog)
+                .filter(PipelineStepLog.log_id == log_id)
+                .order_by(PipelineStepLog.step_order)
+                .all())
+
+    def update_step_log(self, step_log: PipelineStepLog, data: dict):
+        for key, val in data.items():
+            setattr(step_log, key, val)
+        self.session.flush()
+
+    def get_step_log_by_log_and_type(self, log_id: int, step_type: str) -> PipelineStepLog | None:
+        return (self.session.query(PipelineStepLog)
+                .filter(PipelineStepLog.log_id == log_id, PipelineStepLog.step_type == step_type)
+                .first())

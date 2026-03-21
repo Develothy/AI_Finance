@@ -90,13 +90,14 @@ class _LogConfig:
         return "30 days"
 
     LOG_FORMAT = (
-        "[{time:YYYY-MM-DD HH:mm:ss}] [{level}] [{extra[module]}] [{extra[function]}] "
+        "[{time:YYYY-MM-DD HH:mm:ss}] [{level}] [{extra[trace_id]}] [{extra[module]}] [{extra[function]}] "
         "{message}"
     )
 
     CONSOLE_FORMAT = (
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
         "<level>{level: <8}</level> | "
+        "<dim>{extra[trace_id]}</dim> | "
         "<cyan>{extra[module]}</cyan>:<cyan>{extra[function]}</cyan> | "
         "<level>{message}</level>"
     )
@@ -257,6 +258,9 @@ class LoggerSetup:
 
         LogConfig.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+        # extra 기본값 설정 (contextualize로 오버라이드 가능)
+        logger.configure(extra={"trace_id": "-", "module": "", "function": "", "trade": False})
+
         logger.remove()
 
         # 콘솔 출력 (개발 모드)
@@ -316,7 +320,7 @@ class LoggerSetup:
         )
 
         cls._initialized = True
-        logger.bind(module="core", function="setup").info("Logger initialized")
+        logger.bind(module="core", function="setup", trace_id="-").info("Logger initialized")
 
 
 # ============================================================

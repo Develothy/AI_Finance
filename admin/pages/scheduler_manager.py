@@ -27,6 +27,43 @@ STEP_TYPES = [
 STEP_ORDER = {st: i + 1 for i, (st, _) in enumerate(STEP_TYPES)}
 STEP_LABELS = {st: label for st, label in STEP_TYPES}
 
+# 스텝 의존성 매핑
+STEP_DEPENDENCIES = {
+    "price":           [],
+    "fundamental":     ["price"],
+    "market_investor": [],
+    "macro":           [],
+    "news":            ["price"],
+    "disclosure":      ["price"],
+    "supply":          ["price"],
+    "alternative":     ["price"],
+    "feature":         ["price", "fundamental", "macro", "news", "disclosure", "supply", "alternative"],
+    "ml":              ["feature"],
+    "predict":         ["ml"],
+}
+
+STATUS_COLORS = {
+    "success": "#4CAF50",
+    "completed": "#4CAF50",
+    "partial": "#FF9800",
+    "failed": "#f44336",
+    "error": "#f44336",
+    "running": "#1565c0",
+    "pending": "#888",
+    "skipped": "#555",
+}
+
+STATUS_ICONS = {
+    "success": "✅",
+    "completed": "✅",
+    "partial": "⚠️",
+    "failed": "❌",
+    "error": "❌",
+    "running": "🔄",
+    "pending": "⏳",
+    "skipped": "⏭️",
+}
+
 
 def _get_step_badges(job: dict) -> str:
     """활성화된 단계를 뱃지로 표시"""
@@ -82,7 +119,7 @@ def render():
         _render_add_schedule()
 
     with tab_history:
-        _render_execution_history()
+        _render_execution_history(jobs)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -297,21 +334,31 @@ def _render_add_schedule():
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 탭 3 — 실행 이력
+# 탭 3 — 실행 이력 (파이프라인 뷰)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-STATUS_COLORS = {
-    "success": "#4CAF50",
-    "completed": "#4CAF50",
-    "partial": "#FF9800",
-    "failed": "#f44336",
-    "error": "#f44336",
-    "running": "#1565c0",
-    "pending": "#FF9800",
-}
+def _format_duration(sec: int | None) -> str:
+    if sec is None:
+        return "-"
+    if sec < 60:
+        return f"{sec}s"
+    m, s = divmod(sec, 60)
+    return f"{m}m{s}s"
 
 
-def _render_execution_history():
+def _calc_duration(started: str, finished: str | None) -> str:
+    if not started or not finished:
+        return ""
+    try:
+        from datetime import datetime
+        s = datetime.strptime(started, "%Y-%m-%d %H:%M:%S")
+        f = datetime.strptime(finished, "%Y-%m-%d %H:%M:%S")
+        return _format_duration(int((f - s).total_seconds()))
+    except Exception:
+        return ""
+
+
+def _render_execution_history(jobs: list):
     try:
         logs = admin_client.get_schedule_logs(limit=30)
     except Exception as e:
@@ -322,26 +369,147 @@ def _render_execution_history():
         st.info("실행 이력이 없습니다.")
         return
 
-    rows = []
     for log in logs:
-        status = log["status"]
-        rows.append({
-            "시작시각": utc_to_kst(log.get("started_at")),
-            "종료시각": utc_to_kst(log.get("finished_at")),
-            "Job": log.get("job_name", f"id:{log['job_id']}"),
-            "상태": status,
-            "성공": log.get("success_count", 0),
-            "실패": log.get("failed_count", 0),
-            "저장": log.get("db_saved_count", 0),
-            "실행주체": log.get("trigger_by", "manual"),
-            "메시지": log.get("message", "") or "",
-        })
+        _render_log_row(log, jobs)
 
-    df = pd.DataFrame(rows)
 
-    def _style_status(val):
-        color = STATUS_COLORS.get(val, "#888")
-        return f"color: {color}; font-weight: 600;"
+def _render_log_row(log: dict, jobs: list):
+    """실행 이력 1건을 expander로 렌더링 — 펼치면 파이프라인 상세"""
+    log_id = log["id"]
+    status = log["status"]
+    icon = STATUS_ICONS.get(status, "●")
+    job_name = log.get("job_name") or f"id:{log['job_id']}"
+    trigger = log.get("trigger_by", "manual")
+    started = utc_to_kst(log.get("started_at"))
+    duration_str = _calc_duration(log.get("started_at", ""), log.get("finished_at"))
+    sc = log.get("success_count", 0)
+    fc = log.get("failed_count", 0)
+    saved = log.get("db_saved_count", 0)
+    trace_id = log.get("trace_id") or "-"
 
-    styled = df.style.map(_style_status, subset=["상태"])
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    # expander 라벨
+    dur_part = f" {duration_str}" if duration_str else ""
+    exp_label = (
+        f"{icon} #{log_id} {job_name} | {trigger} | {started}{dur_part}"
+        f" | {sc}성공 {fc}실패 {saved}저장"
+    )
+
+    with st.expander(exp_label, expanded=False):
+        # ── 요약 정보 ──
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("상태", f"{icon} {status}")
+        m2.metric("소요", duration_str or "-")
+        m3.metric("저장", f"{saved}")
+        m4.caption(f"trace: `{trace_id}`")
+
+        # ── 스텝 로그 조회 ──
+        try:
+            step_logs = admin_client.get_step_logs(log_id)
+        except Exception as e:
+            st.warning(f"스텝 로그 조회 실패: {e}")
+            step_logs = []
+
+        if step_logs:
+            # ── 파이프라인 바 (st.columns) ──
+            _render_pipeline_bar_native(step_logs)
+
+            st.markdown("---")
+
+            # ── 각 스텝 상세 (중첩 expander) ──
+            for sl in step_logs:
+                _render_step_expander(sl, step_logs, log)
+        else:
+            st.caption("스텝 로그 없음 (이전 방식으로 실행된 기록)")
+            if log.get("message"):
+                st.code(log["message"])
+
+
+def _render_pipeline_bar_native(step_logs: list):
+    """파이프라인 노드를 st.columns로 렌더링 (HTML 없이 네이티브)"""
+    cols = st.columns(len(step_logs))
+    for i, sl in enumerate(step_logs):
+        stype = sl["step_type"]
+        status = sl["status"]
+        icon = STATUS_ICONS.get(status, "●")
+        label = STEP_LABELS.get(stype, stype)
+        emoji = label.split(" ")[0] if " " in label else ""
+        name = label.split(" ")[1] if " " in label else label
+        dur = _format_duration(sl.get("duration_sec"))
+        summary = (sl.get("summary") or "")[:12]
+
+        arrow = " →" if i < len(step_logs) - 1 else ""
+        cols[i].markdown(
+            f"**{emoji} {name}**{arrow}\n\n"
+            f"{icon} {dur} · {summary}",
+        )
+
+
+def _render_step_expander(step_data: dict, all_step_logs: list, log: dict):
+    """스텝 1건을 expander로 렌더링"""
+    stype = step_data["step_type"]
+    status = step_data["status"]
+    icon = STATUS_ICONS.get(status, "●")
+    label = STEP_LABELS.get(stype, stype)
+    dur = _format_duration(step_data.get("duration_sec"))
+    summary = step_data.get("summary") or ""
+    saved = step_data.get("saved_count", 0)
+
+    exp_label = f"{icon} {label} — {status} · {dur} · {saved}건 {summary[:30]}"
+
+    with st.expander(exp_label, expanded=(status in ("failed", "error"))):
+        # 타이밍 + 결과
+        c1, c2, c3 = st.columns(3)
+        c1.metric("시작", step_data.get("started_at") or "-")
+        c2.metric("소요", dur)
+        c3.metric("저장", f"{saved}건")
+
+        if summary:
+            st.caption(f"결과: {summary}")
+
+        if step_data.get("error_message"):
+            st.error(f"에러: {step_data['error_message']}")
+
+        # 의존 스텝 안내
+        deps = STEP_DEPENDENCIES.get(stype, [])
+        if deps:
+            dep_statuses = {}
+            for sl in all_step_logs:
+                if sl["step_type"] in deps:
+                    dep_statuses[sl["step_type"]] = sl["status"]
+
+            missing = [d for d in deps if d not in dep_statuses]
+            failed_deps = [d for d, s in dep_statuses.items() if s in ("failed", "error")]
+
+            dep_labels = [STEP_LABELS.get(d, d) for d in deps]
+            st.caption(f"의존: {', '.join(dep_labels)}")
+
+            if missing:
+                st.warning(f"선행 스텝 미실행: {', '.join(STEP_LABELS.get(d, d) for d in missing)}")
+            if failed_deps:
+                st.warning(f"선행 스텝 실패: {', '.join(STEP_LABELS.get(d, d) for d in failed_deps)}")
+
+        # 재실행 버튼
+        job_id = log.get("job_id")
+        if job_id:
+            bc1, bc2, _ = st.columns([1, 1, 2])
+            if bc1.button("▶ 이 스텝만 재실행", key=f"rerun_step_{log['id']}_{stype}"):
+                try:
+                    result = admin_client.run_single_step(job_id, stype)
+                    st.info(f"실행 시작: {result.get('message', '')}")
+                    st.cache_data.clear()
+                except Exception as e:
+                    st.error(f"실행 실패: {e}")
+
+            if bc2.button("▶▶ 여기서부터 실행", key=f"rerun_from_{log['id']}_{stype}"):
+                try:
+                    result = admin_client.run_from_step(job_id, stype)
+                    st.info(f"실행 시작: {result.get('message', '')}")
+                    st.cache_data.clear()
+                except Exception as e:
+                    st.error(f"실행 실패: {e}")
+
+        # 로그 텍스트
+        if step_data.get("log_text"):
+            st.code(step_data["log_text"], language="log")
+        else:
+            st.caption("실행 로그 없음")

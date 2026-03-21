@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 
@@ -77,6 +78,7 @@ class ScheduleLog(ModelBase):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(Integer, ForeignKey("schedule_job.id", ondelete="CASCADE"), nullable=False)
+    trace_id = Column(String(36), nullable=True)
     status = Column(String(20), nullable=False, default="running")
     started_at = Column(DateTime, nullable=False, default=datetime.now)
     finished_at = Column(DateTime, nullable=True)
@@ -89,3 +91,30 @@ class ScheduleLog(ModelBase):
 
     def __repr__(self):
         return f"<ScheduleLog(job_id={self.job_id} {self.status} {self.started_at})>"
+
+
+class PipelineStepLog(ModelBase):
+    """파이프라인 스텝별 실행 이력"""
+
+    __tablename__ = "pipeline_step_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    log_id = Column(Integer, ForeignKey("schedule_log.id", ondelete="CASCADE"), nullable=False)
+    trace_id = Column(String(36), nullable=False)
+    step_type = Column(String(30), nullable=False)
+    step_order = Column(Integer, nullable=False)
+    status = Column(String(20), default="pending")  # pending/running/success/failed/skipped
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    duration_sec = Column(Integer, nullable=True)
+    saved_count = Column(Integer, default=0)
+    summary = Column(String(500), nullable=True)
+    error_message = Column(String(2000), nullable=True)
+    log_text = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("log_id", "step_type", name="uq_step_log_type"),
+    )
+
+    def __repr__(self):
+        return f"<PipelineStepLog(log_id={self.log_id} {self.step_type} {self.status})>"

@@ -86,6 +86,18 @@ class AdminAPIClient:
             params["job_id"] = job_id
         return _self._get("/admin/scheduler/logs", params)
 
+    def get_step_logs(_self, log_id: int) -> list[dict]:
+        return _self._get(f"/admin/scheduler/logs/{log_id}/steps")
+
+    def get_step_log_text(_self, log_id: int, step_type: str) -> dict:
+        return _self._get(f"/admin/scheduler/logs/{log_id}/steps/{step_type}/log")
+
+    def run_single_step(_self, job_id: int, step_type: str) -> dict:
+        return _self._post(f"/admin/scheduler/jobs/{job_id}/run-step", json={"step_type": step_type})
+
+    def run_from_step(_self, job_id: int, from_step: str) -> dict:
+        return _self._post(f"/admin/scheduler/jobs/{job_id}/run-from", json={"from_step": from_step})
+
     # ── ML 모델 ────────────────────────────────────────
 
     @st.cache_data(ttl=10, show_spinner=False)

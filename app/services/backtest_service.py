@@ -228,7 +228,7 @@ class BacktestService:
         if not start_date:
             start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
 
-        # 활성 모델 목록 조회
+        # 활성 모델 목록 조회 + 같은 model_name의 전체 버전 ID 수집
         with database.session() as session:
             ml_repo = MLRepository(session)
             if model_ids:
@@ -240,10 +240,20 @@ class BacktestService:
             if not models:
                 raise ValueError("레이스할 활성 모델이 없습니다")
 
-            model_meta = {
-                m.id: {"model_name": m.model_name, "algorithm": m.algorithm}
-                for m in models
-            }
+            # 같은 model_name의 모든 버전 model_id를 수집
+            # (모델이 매일 재학습되면 새 ID가 생기므로, 이전 버전 예측도 포함)
+            from models.ml import MLModel
+            model_meta = {}
+            for m in models:
+                all_versions = session.query(MLModel.id).filter(
+                    MLModel.model_name == m.model_name,
+                ).all()
+                all_ids = [r[0] for r in all_versions]
+                model_meta[m.id] = {
+                    "model_name": m.model_name,
+                    "algorithm": m.algorithm,
+                    "all_version_ids": all_ids,
+                }
 
         # 각 모델별 개별 백테스트
         participants = []
@@ -259,10 +269,12 @@ class BacktestService:
                 "error_message": None,
             }
             try:
+                # 같은 model_name의 전체 버전 예측을 사용
                 result = self.run_backtest(
                     market=market, codes=codes,
                     start_date=start_date, end_date=end_date,
-                    model_ids=[model_id], aggregation_method="majority_vote",
+                    model_ids=meta["all_version_ids"],
+                    aggregation_method="majority_vote",
                     initial_capital=initial_capital,
                     transaction_fee=transaction_fee, tax_rate=tax_rate,
                     max_position_pct=max_position_pct,
@@ -503,14 +515,19 @@ class BacktestService:
         end_date: str,
         model_ids: list[int] | None,
     ) -> dict[str, pd.DataFrame]:
-        """종목별 시그널 DataFrame 로딩"""
+        """종목별 시그널 DataFrame 로딩
+
+        같은 날짜에 여러 모델 버전의 예측이 있으면
+        가장 높은 model_id(최신 버전)의 시그널만 사용.
+        """
         signals = {}
         for code in codes:
             rows = ml_repo.get_predictions(
                 market=market, code=code, limit=10000,
             )
             # (MLPrediction, model_name, algorithm) 튜플
-            records = []
+            # 날짜별로 최신 model_id 시그널만 유지
+            best_by_date: dict[str, dict] = {}  # {date_str: record}
             for pred, model_name, algorithm in rows:
                 # 기간 필터
                 pred_date = pred.prediction_date
@@ -526,15 +543,23 @@ class BacktestService:
                 if model_ids and pred.model_id not in model_ids:
                     continue
 
-                if pred.signal:
-                    records.append({
-                        "date": pred.prediction_date,
-                        "model_id": pred.model_id,
-                        "signal": pred.signal,
-                        "confidence": float(pred.confidence) if pred.confidence else 0.5,
-                        "probability_up": float(pred.probability_up) if pred.probability_up else 0.5,
-                    })
+                if not pred.signal:
+                    continue
 
+                # 같은 날짜에 여러 버전이 있으면 최신(highest model_id)만 유지
+                existing = best_by_date.get(date_str)
+                if existing and existing["model_id"] >= pred.model_id:
+                    continue
+
+                best_by_date[date_str] = {
+                    "date": pred.prediction_date,
+                    "model_id": pred.model_id,
+                    "signal": pred.signal,
+                    "confidence": float(pred.confidence) if pred.confidence else 0.5,
+                    "probability_up": float(pred.probability_up) if pred.probability_up else 0.5,
+                }
+
+            records = list(best_by_date.values())
             if records:
                 signals[code] = pd.DataFrame(records)
 

@@ -5,10 +5,14 @@
 스케줄 CRUD + 잡 실행 (백그라운드 스레드)
 """
 
+import io
 import json
 import threading
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
+
+from loguru import logger as loguru_logger
 
 from api.schemas import ScheduleJobRequest, ScheduleJobResponse, ScheduleLogResponse
 from core import get_logger
@@ -313,8 +317,13 @@ class SchedulerService:
 
     # ── 실행 ──
 
-    def run_job(self, job_id: int, base_date: Optional[str] = None) -> dict:
+    def run_job(self, job_id: int, trigger_by: str = "manual",
+                base_date: Optional[str] = None,
+                only_step: Optional[str] = None,
+                from_step: Optional[str] = None) -> dict:
         """잡 즉시 실행 (백그라운드 스레드)"""
+        trace_id = uuid.uuid4().hex[:12]
+
         with database.session() as session:
             repo = SchedulerRepository(session)
             job = repo.get_job(job_id)
@@ -333,7 +342,8 @@ class SchedulerService:
                 "job_id": job.id,
                 "started_at": datetime.now(),
                 "status": "running",
-                "trigger_by": "manual",
+                "trigger_by": trigger_by,
+                "trace_id": trace_id,
             })
             log_id = log.id
             job_market = job.market
@@ -342,12 +352,38 @@ class SchedulerService:
 
         thread = threading.Thread(
             target=self._run_job,
-            args=(log_id, job_market, job_sector, job_days_back, steps_data),
+            args=(log_id, job_market, job_sector, job_days_back,
+                  steps_data, trace_id, only_step, from_step),
             daemon=True,
         )
         thread.start()
 
-        return {"success": True, "log_id": log_id, "message": f"실행 시작 (log_id={log_id})"}
+        return {"success": True, "log_id": log_id, "trace_id": trace_id,
+                "message": f"실행 시작 (log_id={log_id}, trace={trace_id})"}
+
+    def get_step_logs(self, log_id: int) -> list[dict]:
+        """특정 실행의 스텝 로그 목록 반환"""
+        with database.session() as session:
+            repo = SchedulerRepository(session)
+            step_logs = repo.get_step_logs_for_log(log_id)
+            return [
+                {
+                    "id": sl.id,
+                    "log_id": sl.log_id,
+                    "trace_id": sl.trace_id,
+                    "step_type": sl.step_type,
+                    "step_order": sl.step_order,
+                    "status": sl.status,
+                    "started_at": sl.started_at.strftime("%Y-%m-%d %H:%M:%S") if sl.started_at else None,
+                    "finished_at": sl.finished_at.strftime("%Y-%m-%d %H:%M:%S") if sl.finished_at else None,
+                    "duration_sec": sl.duration_sec,
+                    "saved_count": sl.saved_count or 0,
+                    "summary": sl.summary,
+                    "error_message": sl.error_message,
+                    "log_text": sl.log_text,
+                }
+                for sl in step_logs
+            ]
 
     def list_logs(self, job_id: Optional[int], limit: int) -> list[ScheduleLogResponse]:
         with database.session() as session:
@@ -358,6 +394,7 @@ class SchedulerService:
                     id=log.id,
                     job_id=log.job_id,
                     job_name=job_name,
+                    trace_id=log.trace_id,
                     started_at=log.started_at.strftime("%Y-%m-%d %H:%M:%S") if log.started_at else "",
                     finished_at=log.finished_at.strftime("%Y-%m-%d %H:%M:%S") if log.finished_at else None,
                     status=log.status,
@@ -387,26 +424,49 @@ class SchedulerService:
                 {"error": str(e), "data": str(data)[:200]},
             )
 
-    def _run_job(self, log_id: int, market: str, sector: str, days_back: int,
-                 steps_data: list[dict]):
-        """step 기반 통합 잡 실행"""
+    def _update_step_log_safe(self, step_log_id: int, data: dict):
         try:
-            result = _execute_pipeline(market, sector, days_back, steps_data)
-            self._update_log_safe(log_id, {
-                "finished_at": datetime.now(),
-                "status": "success" if result.get("failed", 0) == 0 else "partial",
-                "success_count": result.get("success", 0),
-                "failed_count": result.get("failed", 0),
-                "db_saved_count": result.get("saved", 0),
-                "message": result.get("message", "")[:500],
-            })
+            with database.session() as session:
+                repo = SchedulerRepository(session)
+                from models import PipelineStepLog
+                step_log = session.query(PipelineStepLog).filter(
+                    PipelineStepLog.id == step_log_id
+                ).first()
+                if step_log:
+                    repo.update_step_log(step_log, data)
         except Exception as e:
-            logger.error(f"잡 실행 실패", "_run_job", {"error": str(e)})
-            self._update_log_safe(log_id, {
-                "finished_at": datetime.now(),
-                "status": "failed",
-                "message": str(e)[:500],
-            })
+            logger.error(
+                f"스텝 로그 업데이트 실패 (step_log_id={step_log_id})",
+                "_update_step_log_safe",
+                {"error": str(e)},
+            )
+
+    def _run_job(self, log_id: int, market: str, sector: str, days_back: int,
+                 steps_data: list[dict], trace_id: str,
+                 only_step: str = None, from_step: str = None):
+        """step 기반 통합 잡 실행 (trace_id contextualize + step log 기록)"""
+        with loguru_logger.contextualize(trace_id=trace_id):
+            try:
+                result = _execute_pipeline(
+                    market, sector, days_back, steps_data,
+                    log_id=log_id, trace_id=trace_id,
+                    only_step=only_step, from_step=from_step,
+                )
+                self._update_log_safe(log_id, {
+                    "finished_at": datetime.now(),
+                    "status": "success" if result.get("failed", 0) == 0 else "partial",
+                    "success_count": result.get("success", 0),
+                    "failed_count": result.get("failed", 0),
+                    "db_saved_count": result.get("saved", 0),
+                    "message": result.get("message", "")[:500],
+                })
+            except Exception as e:
+                logger.error(f"잡 실행 실패", "_run_job", {"error": str(e)})
+                self._update_log_safe(log_id, {
+                    "finished_at": datetime.now(),
+                    "status": "failed",
+                    "message": str(e)[:500],
+                })
 
 
 def _init_ctx(market: str, sector: str) -> dict:
@@ -437,12 +497,33 @@ def _init_ctx(market: str, sector: str) -> dict:
     return ctx
 
 
+def _capture_step_logs(trace_id: str) -> tuple[int, io.StringIO]:
+    """스텝 실행 중 로그를 캡처하기 위한 StringIO 싱크 추가. (sink_id, buffer) 반환"""
+    buf = io.StringIO()
+
+    def _sink(message):
+        record = message.record
+        if record["extra"].get("trace_id") == trace_id:
+            buf.write(message)
+
+    sink_id = loguru_logger.add(
+        _sink,
+        format="[{time:HH:mm:ss}] [{level}] {message}",
+        level="INFO",
+        filter=lambda record: record["extra"].get("trace_id") == trace_id,
+    )
+    return sink_id, buf
+
+
 def _execute_pipeline(market: str, sector: str, days_back: int,
-                      steps_data: list[dict]) -> dict:
-    """Step 핸들러 기반 파이프라인 실행"""
-    results = []
+                      steps_data: list[dict],
+                      log_id: int = None, trace_id: str = None,
+                      only_step: str = None, from_step: str = None) -> dict:
+    """Step 핸들러 기반 파이프라인 실행 (step log 기록 + 로그 캡처)"""
     total_saved = 0
     total_failed = 0
+    total_success = 0
+    results = []
     ctx = _init_ctx(market, sector)
 
     sorted_steps = sorted(
@@ -450,24 +531,111 @@ def _execute_pipeline(market: str, sector: str, days_back: int,
         key=lambda s: s["step_order"],
     )
 
+    # only_step / from_step 필터링
+    if only_step:
+        sorted_steps = [s for s in sorted_steps if s["step_type"] == only_step]
+    elif from_step:
+        from_order = STEP_REGISTRY.get(from_step, {}).get("order", 0)
+        sorted_steps = [s for s in sorted_steps if s["step_order"] >= from_order]
+
+    # step log 사전 생성 (모든 스텝을 pending 상태로)
+    step_log_ids = {}
+    if log_id and trace_id:
+        try:
+            with database.session() as session:
+                repo = SchedulerRepository(session)
+                for step in sorted_steps:
+                    sl = repo.create_step_log({
+                        "log_id": log_id,
+                        "trace_id": trace_id,
+                        "step_type": step["step_type"],
+                        "step_order": step["step_order"],
+                        "status": "pending",
+                    })
+                    step_log_ids[step["step_type"]] = sl.id
+        except Exception as e:
+            logger.error(f"스텝 로그 사전 생성 실패: {e}", "_execute_pipeline")
+
+    svc = SchedulerService()
+
     for step in sorted_steps:
-        handler = STEP_HANDLERS.get(step["step_type"])
+        step_type = step["step_type"]
+        handler = STEP_HANDLERS.get(step_type)
         if not handler:
-            results.append(f"{step['step_type']}: 알 수 없는 단계")
+            results.append(f"{step_type}: 알 수 없는 단계")
             continue
-        label = STEP_REGISTRY.get(step["step_type"], {}).get("label", step["step_type"])
+
+        label = STEP_REGISTRY.get(step_type, {}).get("label", step_type)
+        sl_id = step_log_ids.get(step_type)
+
+        # step log → running
+        step_started = datetime.now()
+        if sl_id:
+            svc._update_step_log_safe(sl_id, {
+                "status": "running",
+                "started_at": step_started,
+            })
+
+        # 로그 캡처 시작
+        sink_id = None
+        buf = None
+        if trace_id:
+            sink_id, buf = _capture_step_logs(trace_id)
+
         try:
             r = handler(market, sector, days_back, step.get("config"), ctx)
-            total_saved += r.get("saved", 0)
-            results.append(f"{label}: {r.get('summary', 'OK')}")
+            saved = r.get("saved", 0)
+            total_saved += saved
+            total_success += 1
+            summary = r.get("summary", "OK")
+            results.append(f"{label}: {summary}")
+
+            # step log → success
+            step_finished = datetime.now()
+            duration = int((step_finished - step_started).total_seconds())
+            if sl_id:
+                log_text = buf.getvalue() if buf else None
+                svc._update_step_log_safe(sl_id, {
+                    "status": "success",
+                    "finished_at": step_finished,
+                    "duration_sec": duration,
+                    "saved_count": saved,
+                    "summary": summary[:500],
+                    "log_text": log_text[:50000] if log_text else None,
+                })
+
         except Exception as e:
-            results.append(f"{label}: 실패({e})")
             total_failed += 1
+            error_msg = str(e)[:2000]
+            results.append(f"{label}: 실패({e})")
+
+            # step log → failed
+            step_finished = datetime.now()
+            duration = int((step_finished - step_started).total_seconds())
+            if sl_id:
+                log_text = buf.getvalue() if buf else None
+                svc._update_step_log_safe(sl_id, {
+                    "status": "failed",
+                    "finished_at": step_finished,
+                    "duration_sec": duration,
+                    "error_message": error_msg,
+                    "log_text": log_text[:50000] if log_text else None,
+                })
+
+        finally:
+            # 로그 캡처 싱크 제거
+            if sink_id is not None:
+                try:
+                    loguru_logger.remove(sink_id)
+                except Exception:
+                    pass
+            if buf:
+                buf.close()
 
     msg = " | ".join(results)
     return {
         "saved": total_saved,
         "failed": total_failed,
-        "success": len(sorted_steps) - total_failed,
+        "success": total_success,
         "message": f"파이프라인 완료: {msg}" if results else "실행할 단계 없음",
     }

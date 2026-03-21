@@ -3,11 +3,14 @@
 """
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from loguru import logger as loguru_logger
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.routes import stock_router, indicator_router, admin_router, ml_router, fundamental_router, macro_router, news_router, disclosure_router, backtest_router
 from config import settings
@@ -47,6 +50,18 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# trace_id 미들웨어 — 요청마다 UUID 생성, loguru contextualize로 전파
+class TraceIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        trace_id = request.headers.get("X-Trace-Id") or uuid.uuid4().hex[:12]
+        request.state.trace_id = trace_id
+        with loguru_logger.contextualize(trace_id=trace_id):
+            response = await call_next(request)
+            response.headers["X-Trace-Id"] = trace_id
+            return response
+
+app.add_middleware(TraceIdMiddleware)
 
 # CORS 설정
 _origins = settings.cors_origins_list

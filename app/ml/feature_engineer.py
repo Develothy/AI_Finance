@@ -299,6 +299,7 @@ class FeatureEngineer:
         end_date: str = None,
         target_days: list[int] = None,
         incremental: bool = True,
+        force_phase6: bool = False,
     ) -> dict:
         """
         마켓 전체 종목의 피처를 계산 (2-pass)
@@ -306,6 +307,9 @@ class FeatureEngineer:
         Pass 1: Phase 1~5 피처 계산 → feature_store 저장
         Pass 2: Phase 6 섹터/뉴스정제 피처 계산 → feature_store 업데이트
         (Phase 6은 동일 섹터 피어의 Phase 1~5 데이터가 필요하므로 분리)
+
+        Args:
+            force_phase6: True면 이미 계산된 Phase 6도 재계산 (섹터 데이터 개선 시)
 
         Args:
             codes: 대상 종목 코드 리스트 (None이면 DB에서 전체 조회)
@@ -351,11 +355,14 @@ class FeatureEngineer:
 
         # Pass 2: Phase 6 섹터/뉴스정제 피처 계산
         # 증분 모드: Pass 1에서 신규 데이터가 있던 종목 + Phase 6 미계산 종목만 처리
-        phase6_targets = self._get_phase6_targets(
-            market, codes, phase1_updated_codes, incremental,
-        )
+        if force_phase6:
+            phase6_targets = codes
+        else:
+            phase6_targets = self._get_phase6_targets(
+                market, codes, phase1_updated_codes, incremental,
+            )
         logger.info(
-            f"Pass 2/2: Phase 6 피처 계산 ({len(phase6_targets)}/{total}종목)",
+            f"Pass 2/2: Phase 6 피처 계산 ({len(phase6_targets)}/{total}종목, force={force_phase6})",
             "compute_all",
         )
         phase6_success = 0
@@ -364,6 +371,8 @@ class FeatureEngineer:
             try:
                 count = self._compute_phase6_only(
                     market, code, start_date, end_date,
+                    peer_codes=codes,
+                    force=force_phase6,
                 )
                 if count > 0:
                     phase6_success += 1
@@ -423,6 +432,8 @@ class FeatureEngineer:
         code: str,
         start_date: str = None,
         end_date: str = None,
+        peer_codes: list[str] = None,
+        force: bool = False,
     ) -> int:
         """
         Phase 6 피처만 계산하여 feature_store 업데이트
@@ -430,6 +441,10 @@ class FeatureEngineer:
         compute_all()의 Pass 2에서 호출.
         feature_store에 이미 저장된 Phase 1~5 데이터를 읽어
         섹터/상대강도 + 뉴스 정제 피처를 계산한다.
+
+        Args:
+            peer_codes: 동일 섹터 종목 코드 리스트 (compute_all에서 전달)
+            force: True면 이미 계산된 Phase 6도 재계산
         """
         with database.session() as session:
             ml_repo = MLRepository(session)
@@ -438,8 +453,12 @@ class FeatureEngineer:
             if not features:
                 return 0
 
-            # Phase 6 미계산 레코드만 처리 (sector_return_1d가 NULL)
-            features = [f for f in features if f.sector_return_1d is None]
+            if force:
+                # 전체 레코드 재계산
+                pass
+            else:
+                # Phase 6 미계산 레코드만 처리 (sector_return_1d가 NULL)
+                features = [f for f in features if f.sector_return_1d is None]
             if not features:
                 return 0
 
@@ -456,7 +475,7 @@ class FeatureEngineer:
                 return 0
 
             # Phase 6A: 섹터/상대강도
-            df = self._merge_sector_features(df, market, code, session)
+            df = self._merge_sector_features(df, market, code, session, peer_codes=peer_codes)
 
             # Phase 6B: 뉴스 정제
             df = self._merge_news_refined_features(df, market, code, session)
@@ -837,6 +856,7 @@ class FeatureEngineer:
         market: str,
         code: str,
         session,
+        peer_codes: list[str] = None,
     ) -> pd.DataFrame:
         """
         섹터/상대강도 피처를 기존 피처 DataFrame에 병합 (Phase 6A)
@@ -852,16 +872,28 @@ class FeatureEngineer:
         stock_repo = StockRepository(session)
         ml_repo = MLRepository(session)
 
-        # 1) 섹터 조회
-        sector = stock_repo.get_sector_for_code(code, market)
-        if not sector:
-            for col in _SECTOR_FEATURE_COLUMNS:
-                df[col] = None
-            return df
+        # 1) 섹터 그룹 결정
+        # peer_codes가 제공되면 우선 사용 (compute_all에서 동일 잡의 종목 리스트)
+        # 없으면 DB의 sector/industry 기반으로 조회 (폴백)
+        sector_codes = None
 
-        # 2) 동일 섹터 종목코드
-        sector_codes = stock_repo.get_codes_in_sector(sector, market)
-        if len(sector_codes) < 2:
+        if peer_codes and len(peer_codes) >= 2:
+            sector_codes = peer_codes
+        else:
+            # DB 기반 폴백: sector → industry 순서로 시도
+            sector = stock_repo.get_sector_for_code(code, market)
+            if sector:
+                sector_codes = stock_repo.get_codes_in_sector(sector, market)
+
+            # sector로 못 찾으면 industry 키워드로 시도
+            if not sector_codes or len(sector_codes) < 2:
+                industry = stock_repo.get_industry_for_code(code, market)
+                if industry:
+                    sector_codes = stock_repo.get_codes_by_industry_keyword(
+                        industry, market,
+                    )
+
+        if not sector_codes or len(sector_codes) < 2:
             for col in _SECTOR_FEATURE_COLUMNS:
                 df[col] = None
             return df
@@ -909,8 +941,8 @@ class FeatureEngineer:
 
         my_stock = df[my_cols].copy()
 
-        # 병합: 섹터 집계 + 내 종목
-        sector_feat = sector_agg.merge(my_stock, on="date", how="inner")
+        # 병합: 섹터 집계 + 내 종목 (left join으로 섹터 데이터 보존)
+        sector_feat = sector_agg.merge(my_stock, on="date", how="left")
 
         # 상대강도 계산
         if "return_1d" in sector_feat.columns:

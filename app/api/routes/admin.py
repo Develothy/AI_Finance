@@ -15,9 +15,12 @@ from api.schemas import (
     HealthResponse,
     LogResponse,
     RunJobRequest,
+    RunStepRequest,
+    RunFromStepRequest,
     ScheduleJobRequest,
     ScheduleJobResponse,
     ScheduleLogResponse,
+    PipelineStepLogResponse,
 )
 from config import settings
 from services import admin_service, scheduler_service
@@ -103,7 +106,19 @@ def delete_schedule_job(job_id: int):
 def run_schedule_job(job_id: int, req: Optional[RunJobRequest] = Body(default=None)):
     """스케줄 즉시 실행 (백그라운드)"""
     base_date = req.base_date if req else None
-    return scheduler_service.run_job(job_id, base_date)
+    return scheduler_service.run_job(job_id, base_date=base_date)
+
+
+@router.post("/scheduler/jobs/{job_id}/run-step")
+def run_single_step(job_id: int, req: RunStepRequest):
+    """단일 스텝만 실행"""
+    return scheduler_service.run_job(job_id, only_step=req.step_type)
+
+
+@router.post("/scheduler/jobs/{job_id}/run-from")
+def run_from_step(job_id: int, req: RunFromStepRequest):
+    """지정 스텝부터 이후 전체 실행"""
+    return scheduler_service.run_job(job_id, from_step=req.from_step)
 
 
 @router.get("/scheduler/logs", response_model=list[ScheduleLogResponse])
@@ -113,3 +128,19 @@ def list_schedule_logs(
 ):
     """실행 이력 조회"""
     return scheduler_service.list_logs(job_id, limit)
+
+
+@router.get("/scheduler/logs/{log_id}/steps")
+def get_step_logs(log_id: int):
+    """특정 실행의 스텝별 로그 조회"""
+    return scheduler_service.get_step_logs(log_id)
+
+
+@router.get("/scheduler/logs/{log_id}/steps/{step_type}/log")
+def get_step_log_text(log_id: int, step_type: str):
+    """특정 스텝의 로그 텍스트 조회"""
+    step_logs = scheduler_service.get_step_logs(log_id)
+    for sl in step_logs:
+        if sl["step_type"] == step_type:
+            return {"step_type": step_type, "log_text": sl.get("log_text", "")}
+    raise HTTPException(status_code=404, detail=f"스텝 로그 없음: {step_type}")

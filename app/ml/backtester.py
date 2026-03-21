@@ -423,15 +423,19 @@ class BacktestEngine:
         # 승률 & 수익 팩터 (매수-매도 페어 기반)
         win_rate, profit_factor = self._compute_trade_metrics(trades)
 
+        # DB Numeric 컬럼 오버플로우 방지 — clamp
+        _RATIO_MAX = 9999.0       # Numeric(10, 6) → max ±9999.999999
+        _PF_MAX = 999999.0        # Numeric(10, 4) → max ±999999.9999
+
         return {
             "total_return": round(float(total_return), 6),
             "annualized_return": round(float(annualized), 6),
-            "sharpe_ratio": round(sharpe, 6),
-            "sortino_ratio": round(sortino, 6),
+            "sharpe_ratio": round(max(min(sharpe, _RATIO_MAX), -_RATIO_MAX), 6),
+            "sortino_ratio": round(max(min(sortino, _RATIO_MAX), -_RATIO_MAX), 6),
             "max_drawdown": round(max_dd, 6),
-            "calmar_ratio": round(float(calmar), 6),
+            "calmar_ratio": round(max(min(float(calmar), _RATIO_MAX), -_RATIO_MAX), 6),
             "win_rate": round(win_rate, 6),
-            "profit_factor": round(profit_factor, 4),
+            "profit_factor": round(min(profit_factor, _PF_MAX), 4),
             "total_trades": len(trades),
         }
 

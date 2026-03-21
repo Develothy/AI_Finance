@@ -289,6 +289,7 @@ class ScheduleLogResponse(BaseModel):
     id: int
     job_id: int
     job_name: Optional[str] = None
+    trace_id: Optional[str] = None
     started_at: str
     finished_at: Optional[str]
     status: str
@@ -298,6 +299,30 @@ class ScheduleLogResponse(BaseModel):
     db_saved_count: int
     trigger_by: str
     message: Optional[str]
+
+
+class PipelineStepLogResponse(BaseModel):
+    id: int
+    log_id: int
+    trace_id: str
+    step_type: str
+    step_order: int
+    status: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    duration_sec: Optional[int] = None
+    saved_count: int = 0
+    summary: Optional[str] = None
+    error_message: Optional[str] = None
+    log_text: Optional[str] = None
+
+
+class RunStepRequest(BaseModel):
+    step_type: str
+
+
+class RunFromStepRequest(BaseModel):
+    from_step: str
 
 
 # ============================================================

@@ -158,6 +158,36 @@ class StockRepository:
         ).all()
         return [r[0] for r in rows]
 
+    def get_industry_for_code(self, code: str, market: str) -> Optional[str]:
+        """종목코드의 산업분류 조회"""
+        result = self.session.query(StockInfo.industry).filter(
+            StockInfo.code == code,
+            StockInfo.market == market,
+        ).first()
+        return result[0] if result else None
+
+    def get_codes_by_industry_keyword(self, industry: str, market: str) -> list[str]:
+        """동일 산업 키워드를 가진 종목코드 목록 (LIKE 매칭)
+
+        industry 값에서 첫 번째 주요 키워드를 추출하여 부분 매칭.
+        예: "반도체 제조업" → "%반도체%" 매칭
+        """
+        # 첫 번째 주요 키워드 추출 (2자 이상)
+        keyword = None
+        for word in industry.replace(",", " ").split():
+            if len(word) >= 2:
+                keyword = word
+                break
+
+        if not keyword:
+            return []
+
+        rows = self.session.query(StockInfo.code).filter(
+            StockInfo.industry.ilike(f"%{keyword}%"),
+            StockInfo.market == market,
+        ).all()
+        return [r[0] for r in rows]
+
     def get_codes_by_market(self, market: str) -> list[str]:
         """마켓별 종목 코드 목록 (KR이면 KOSPI+KOSDAQ)"""
         query = self.session.query(StockInfo.code)

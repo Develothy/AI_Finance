@@ -318,26 +318,32 @@ def _render_add_schedule():
 
     st.markdown("---")
 
+    # ── 파이프라인 단계 선택 (form 밖 — 즉시 반응) ──
+    st.markdown("**파이프라인 단계 선택**")
+    if "step_select_all" not in st.session_state:
+        st.session_state["step_select_all"] = True
+        for st_type, _ in STEP_TYPES:
+            st.session_state[f"step_{st_type}"] = True
+
+    def _on_select_all_change():
+        val = st.session_state["step_select_all"]
+        for st_type, _ in STEP_TYPES:
+            st.session_state[f"step_{st_type}"] = val
+
+    st.checkbox(
+        "전체 선택 (풀 파이프라인)", key="step_select_all",
+        on_change=_on_select_all_change,
+    )
+
+    cols = st.columns(len(STEP_TYPES))
+    for i, (step_type, label) in enumerate(STEP_TYPES):
+        cols[i].checkbox(label, key=f"step_{step_type}")
+
+    step_flags = {st_type: st.session_state.get(f"step_{st_type}", True) for st_type, _ in STEP_TYPES}
+
+    st.markdown("---")
+
     with st.form("add_schedule"):
-        # ── 파이프라인 단계 선택 ──
-        st.markdown("**파이프라인 단계 선택**")
-        select_all = st.checkbox("전체 선택 (풀 파이프라인)", value=True, key="select_all")
-
-        cols = st.columns(len(STEP_TYPES))
-        step_flags = {}
-        for i, (step_type, label) in enumerate(STEP_TYPES):
-            checked = cols[i].checkbox(
-                label,
-                value=select_all,
-                key=f"step_{step_type}",
-                disabled=select_all,
-            )
-            if select_all:
-                step_flags[step_type] = True
-            else:
-                step_flags[step_type] = checked
-
-        st.markdown("---")
 
         # ── 기본 정보 ──
         st.markdown("**기본 정보**")
@@ -606,19 +612,22 @@ def _render_step_detail(step_data: dict, all_step_logs: list, log: dict):
     # 재실행 버튼 + 로그
     job_id = log.get("job_id")
     if job_id:
+        # 원래 실행 날짜 추출 (YYYY-MM-DD)
+        orig_date = (log.get("started_at") or "")[:10] or None
+
         bc1, bc2, _ = st.columns([1, 1, 2])
         if bc1.button("▶ 이 스텝만", key=f"rerun_step_{log['id']}_{stype}"):
             try:
-                result = admin_client.run_single_step(job_id, stype)
-                st.info(f"실행 시작: {result.get('message', '')}")
+                result = admin_client.run_single_step(job_id, stype, base_date=orig_date)
+                st.info(f"실행 시작 (기준일: {orig_date}): {result.get('message', '')}")
                 st.cache_data.clear()
             except Exception as e:
                 st.error(f"실행 실패: {e}")
 
         if bc2.button("▶▶ 여기서부터", key=f"rerun_from_{log['id']}_{stype}"):
             try:
-                result = admin_client.run_from_step(job_id, stype)
-                st.info(f"실행 시작: {result.get('message', '')}")
+                result = admin_client.run_from_step(job_id, stype, base_date=orig_date)
+                st.info(f"실행 시작 (기준일: {orig_date}): {result.get('message', '')}")
                 st.cache_data.clear()
             except Exception as e:
                 st.error(f"실행 실패: {e}")

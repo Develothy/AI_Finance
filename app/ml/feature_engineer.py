@@ -6,12 +6,13 @@ StockPrice → 가격/기술지표/파생 피처 계산 → feature_store 저장
 Phase 2: + StockFundamental/FinancialStatement → 재무 피처 병합
 """
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
 
 from core import get_logger
+from core.market_calendar import is_trading_day, _get_calendar, _resolve_exchange
 from db import database
 from indicators import calc_sma, calc_ema, calc_rsi, calc_macd, calc_bollinger_bands, calc_obv
 from models import StockPrice, StockFundamental, FinancialStatement, MacroIndicator, StockInfo
@@ -655,19 +656,25 @@ class FeatureEngineer:
 
         min_date = df["date"].min()
         max_date = df["date"].max()
+        # 주말 뉴스 포함을 위해 조회 범위를 앞으로 2일 확장 (금요일 장 마감 후 ~ 일요일)
+        extended_min = min_date - timedelta(days=3)
 
         repo = NewsRepository(session)
 
         # 1) 종목별 센티먼트
-        stock_sent = repo.get_daily_sentiment(code, min_date, max_date)
+        stock_sent = repo.get_daily_sentiment(code, extended_min, max_date)
         if stock_sent:
             sent_df = pd.DataFrame(stock_sent)
+            sent_df = self._snap_to_trading_day(sent_df, market,
+                                                 ["news_sentiment", "news_volume", "news_sentiment_std"])
             df = df.merge(sent_df, on="date", how="left")
 
         # 2) 시장 전체 센티먼트
-        market_sent = repo.get_daily_market_sentiment(min_date, max_date, market)
+        market_sent = repo.get_daily_market_sentiment(extended_min, max_date, market)
         if market_sent:
             msent_df = pd.DataFrame(market_sent)
+            msent_df = self._snap_to_trading_day(msent_df, market,
+                                                  ["market_sentiment", "market_news_volume"])
             df = df.merge(msent_df, on="date", how="left")
 
         # 컬럼 보장 (데이터 없어도 컬럼은 존재해야 함)
@@ -676,6 +683,62 @@ class FeatureEngineer:
                 df[col] = None
 
         return df
+
+    @staticmethod
+    def _snap_to_trading_day(
+        news_df: pd.DataFrame, market: str, value_cols: list[str],
+    ) -> pd.DataFrame:
+        """비거래일 뉴스를 다음 거래일로 매핑 후 가중평균 재집계.
+
+        - sentiment 컬럼: volume 가중평균
+        - volume 컬럼: 합산
+        - std 컬럼: 합산된 데이터로 재계산 불가 → 거래일 것만 사용 (비거래일은 drop)
+        """
+        if news_df.empty:
+            return news_df
+
+        cal = _get_calendar(_resolve_exchange(market))
+
+        def _to_next_session(d):
+            ts = pd.Timestamp(d)
+            return cal.date_to_session(ts, direction="next").date()
+
+        news_df = news_df.copy()
+        news_df["date"] = news_df["date"].apply(_to_next_session)
+
+        # 같은 거래일로 매핑된 행들을 합산
+        vol_col = next((c for c in value_cols if "volume" in c), None)
+        sent_col = next((c for c in value_cols if "sentiment" in c and "std" not in c), None)
+        std_col = next((c for c in value_cols if "std" in c), None)
+
+        agg_dict = {}
+        if vol_col and vol_col in news_df.columns:
+            agg_dict[vol_col] = "sum"
+        if sent_col and sent_col in news_df.columns:
+            # volume 가중평균 → 나중에 계산
+            pass
+        if std_col and std_col in news_df.columns:
+            # std는 단순 합산 불가 → 거래일 기준으로 대표값 사용
+            agg_dict[std_col] = "last"
+
+        if sent_col and vol_col and sent_col in news_df.columns and vol_col in news_df.columns:
+            # 가중합 컬럼 생성
+            news_df["_weighted"] = news_df[sent_col] * news_df[vol_col]
+            grouped = news_df.groupby("date").agg(
+                _weighted_sum=("_weighted", "sum"),
+                _vol_sum=(vol_col, "sum"),
+                **({std_col: (std_col, "last")} if std_col and std_col in news_df.columns else {}),
+            ).reset_index()
+            grouped[sent_col] = (grouped["_weighted_sum"] / grouped["_vol_sum"]).round(4)
+            grouped[vol_col] = grouped["_vol_sum"].astype(int)
+            result_cols = ["date", sent_col, vol_col]
+            if std_col and std_col in grouped.columns:
+                result_cols.append(std_col)
+            return grouped[result_cols]
+        elif agg_dict:
+            return news_df.groupby("date").agg(agg_dict).reset_index()
+        else:
+            return news_df
 
     def _merge_disclosure_features(
         self,

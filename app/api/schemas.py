@@ -209,7 +209,7 @@ class JobStepRequest(BaseModel):
     @model_validator(mode="after")
     def validate_step_type(self):
         valid = {"price", "fundamental", "market_investor", "macro", "news",
-                 "disclosure", "supply", "alternative", "feature", "ml"}
+                 "disclosure", "supply", "alternative", "feature", "ml", "predict"}
         if self.step_type not in valid:
             raise ValueError(f"step_type은 {valid} 중 하나여야 합니다")
         return self
@@ -350,10 +350,12 @@ class PipelineStepLogResponse(BaseModel):
 
 class RunStepRequest(BaseModel):
     step_type: str
+    base_date: Optional[str] = None  # "YYYY-MM-DD" — 원래 실행 날짜로 재실행
 
 
 class RunFromStepRequest(BaseModel):
     from_step: str
+    base_date: Optional[str] = None
 
 
 # ============================================================

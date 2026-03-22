@@ -92,11 +92,17 @@ class AdminAPIClient:
     def get_step_log_text(_self, log_id: int, step_type: str) -> dict:
         return _self._get(f"/admin/scheduler/logs/{log_id}/steps/{step_type}/log")
 
-    def run_single_step(_self, job_id: int, step_type: str) -> dict:
-        return _self._post(f"/admin/scheduler/jobs/{job_id}/run-step", json={"step_type": step_type})
+    def run_single_step(_self, job_id: int, step_type: str, base_date: str = None) -> dict:
+        body = {"step_type": step_type}
+        if base_date:
+            body["base_date"] = base_date
+        return _self._post(f"/admin/scheduler/jobs/{job_id}/run-step", json=body)
 
-    def run_from_step(_self, job_id: int, from_step: str) -> dict:
-        return _self._post(f"/admin/scheduler/jobs/{job_id}/run-from", json={"from_step": from_step})
+    def run_from_step(_self, job_id: int, from_step: str, base_date: str = None) -> dict:
+        body = {"from_step": from_step}
+        if base_date:
+            body["base_date"] = base_date
+        return _self._post(f"/admin/scheduler/jobs/{job_id}/run-from", json=body)
 
     # ── 종목 검색 ────────────────────────────────────────
 

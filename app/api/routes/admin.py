@@ -112,13 +112,13 @@ def run_schedule_job(job_id: int, req: Optional[RunJobRequest] = Body(default=No
 @router.post("/scheduler/jobs/{job_id}/run-step")
 def run_single_step(job_id: int, req: RunStepRequest):
     """단일 스텝만 실행"""
-    return scheduler_service.run_job(job_id, only_step=req.step_type)
+    return scheduler_service.run_job(job_id, only_step=req.step_type, base_date=req.base_date)
 
 
 @router.post("/scheduler/jobs/{job_id}/run-from")
 def run_from_step(job_id: int, req: RunFromStepRequest):
     """지정 스텝부터 이후 전체 실행"""
-    return scheduler_service.run_job(job_id, from_step=req.from_step)
+    return scheduler_service.run_job(job_id, from_step=req.from_step, base_date=req.base_date)
 
 
 @router.get("/scheduler/logs", response_model=list[ScheduleLogResponse])

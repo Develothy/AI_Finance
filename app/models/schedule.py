@@ -26,7 +26,6 @@ class ScheduleJob(ModelBase):
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_name = Column(String(50), unique=True, nullable=False)
     market = Column(String(10), nullable=False)
-    sector = Column(String(50), nullable=True)
     cron_expr = Column(String(100), nullable=False)
     days_back = Column(Integer, nullable=False, default=7)
     enabled = Column(Boolean, nullable=False, default=True)
@@ -41,6 +40,28 @@ class ScheduleJob(ModelBase):
 
     def __repr__(self):
         return f"<ScheduleJob({self.job_name} {self.market} [{self.cron_expr}])>"
+
+
+class JobTargetCode(ModelBase):
+    """스케줄 잡의 대상 종목 리스트"""
+
+    __tablename__ = "job_target_code"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(
+        Integer,
+        ForeignKey("schedule_job.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    code = Column(String(20), nullable=False)
+    name = Column(String(100), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("job_id", "code", name="uq_job_target_code"),
+    )
+
+    def __repr__(self):
+        return f"<JobTargetCode(job_id={self.job_id} {self.code})>"
 
 
 class JobStep(ModelBase):

@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 
@@ -34,7 +35,7 @@ class BacktestRun(ModelBase):
     end_date = Column(Date, nullable=False)
 
     # 설정 (JSON)
-    config_json = Column(String(5000))                     # model_ids, aggregation_method 등
+    config_json = Column(Text)                              # model_ids, aggregation_method 등
 
     # 포트폴리오 파라미터
     initial_capital = Column(Numeric(15, 2), nullable=False, default=10_000_000)
@@ -42,7 +43,7 @@ class BacktestRun(ModelBase):
     tax_rate = Column(Numeric(8, 6), default=0.0023)
 
     # 종목 목록 (JSON)
-    codes_json = Column(String(5000))
+    codes_json = Column(Text)
 
     # 성과 지표
     total_return = Column(Numeric(10, 6))

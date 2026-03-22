@@ -5,7 +5,7 @@ import streamlit as st
 
 from admin.api.client import admin_client
 from admin.config import utc_to_kst
-from admin.pages.components import inject_custom_css, status_dot
+from admin.pages.components import inject_custom_css, metric_card, status_dot
 
 MARKETS = ["KOSPI", "KOSDAQ", "NYSE", "NASDAQ"]
 
@@ -180,7 +180,14 @@ def _render_schedule_list(jobs: list):
 
             # ── 정보 행 ──
             c1, c2, c3 = st.columns(3)
-            c1.caption(f"마켓: **{job['market']}**" + (f" / {job['sector']}" if job.get("sector") else ""))
+            tcs = job.get("target_codes", [])
+            if tcs:
+                preview = ", ".join(f"{tc['code']}({tc.get('name', '')})" for tc in tcs[:3])
+                if len(tcs) > 3:
+                    preview += f" 외 {len(tcs) - 3}종목"
+                c1.caption(f"마켓: **{job['market']}** · 대상: {preview}")
+            else:
+                c1.caption(f"마켓: **{job['market']}**")
             c2.caption(f"크론: `{job['cron_expr']}`")
             c3.caption(f"수집기간: **{job['days_back']}일**")
 
@@ -237,10 +244,84 @@ def _render_add_schedule():
         "`0 9 * * 1` (매주 월요일 9시)"
     )
 
+    # session_state 초기화
+    if "selected_stocks" not in st.session_state:
+        st.session_state["selected_stocks"] = {}  # {code: name}
+
+    # ── 종목 검색 영역 (form 바깥) ──
+    st.markdown("**대상 종목 선택**")
+
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        st.caption("종목 검색 (코드 또는 이름)")
+        kw = st.text_input("검색어", placeholder="삼성전자, 005930", key="stock_search_kw")
+        if st.button("검색", key="btn_stock_search") and kw:
+            try:
+                results = admin_client.search_stocks(kw, limit=30)
+                st.session_state["stock_search_results"] = results
+            except Exception as e:
+                st.error(f"검색 실패: {e}")
+
+    with sc2:
+        st.caption("섹터/산업 일괄 추가")
+        sector_kw = st.text_input("섹터 키워드", placeholder="반도체", key="sector_search_kw")
+        if st.button("섹터 검색", key="btn_sector_search") and sector_kw:
+            try:
+                results = admin_client.search_stocks_by_sector(sector_kw)
+                st.session_state["sector_search_results"] = results
+            except Exception as e:
+                st.error(f"검색 실패: {e}")
+
+    # 종목 검색 결과
+    if st.session_state.get("stock_search_results"):
+        results = st.session_state["stock_search_results"]
+        st.caption(f"검색 결과: {len(results)}건")
+        for i, s in enumerate(results[:20]):
+            lbl = f"{s['code']} {s.get('name', '')} ({s.get('market', '')})"
+            if s["code"] not in st.session_state["selected_stocks"]:
+                if st.button(f"+ {lbl}", key=f"add_stock_{i}"):
+                    st.session_state["selected_stocks"][s["code"]] = s.get("name", "")
+                    st.rerun()
+            else:
+                st.caption(f"  ✅ {lbl}")
+
+    # 섹터 검색 결과
+    if st.session_state.get("sector_search_results"):
+        results = st.session_state["sector_search_results"]
+        new_count = sum(1 for s in results if s["code"] not in st.session_state["selected_stocks"])
+        st.caption(f"섹터 검색 결과: {len(results)}건 (신규 {new_count}건)")
+        if new_count > 0 and st.button(f"전체 {new_count}종목 추가", key="btn_add_all_sector"):
+            for s in results:
+                if s["code"] not in st.session_state["selected_stocks"]:
+                    st.session_state["selected_stocks"][s["code"]] = s.get("name", "")
+            st.rerun()
+
+    # 선택된 종목 목록
+    selected = st.session_state["selected_stocks"]
+    if selected:
+        st.markdown(f"**선택된 종목 ({len(selected)}개)**")
+        remove_codes = []
+        cols_per_row = 4
+        items = list(selected.items())
+        for row_start in range(0, len(items), cols_per_row):
+            row_items = items[row_start:row_start + cols_per_row]
+            cols = st.columns(cols_per_row)
+            for ci, (code, name) in enumerate(row_items):
+                if cols[ci].button(f"❌ {code}({name})", key=f"rm_{code}"):
+                    remove_codes.append(code)
+        if remove_codes:
+            for c in remove_codes:
+                del st.session_state["selected_stocks"][c]
+            st.rerun()
+    else:
+        st.warning("종목을 1개 이상 선택하세요.")
+
+    st.markdown("---")
+
     with st.form("add_schedule"):
         # ── 파이프라인 단계 선택 ──
         st.markdown("**파이프라인 단계 선택**")
-        select_all = st.checkbox("🔄 전체 선택 (풀 파이프라인)", value=True, key="select_all")
+        select_all = st.checkbox("전체 선택 (풀 파이프라인)", value=True, key="select_all")
 
         cols = st.columns(len(STEP_TYPES))
         step_flags = {}
@@ -260,10 +341,9 @@ def _render_add_schedule():
 
         # ── 기본 정보 ──
         st.markdown("**기본 정보**")
-        fc1, fc2, fc3 = st.columns([2, 1.5, 1.5])
+        fc1, fc2 = st.columns([2, 1.5])
         job_name = fc1.text_input("Job 이름", placeholder="kr_daily_kospi")
         market = fc2.selectbox("마켓", MARKETS)
-        sector = fc3.text_input("섹터 (선택)", placeholder="반도체")
 
         fc4, fc5, fc6 = st.columns([2, 1, 2])
         cron_expr = fc4.text_input("크론식 (분 시 일 월 요일)", value="0 19 * * *", help=CRON_EXAMPLES)
@@ -273,7 +353,7 @@ def _render_add_schedule():
         # ── ML 설정 (ML 체크 시) ──
         if step_flags.get("ml"):
             st.markdown("---")
-            st.markdown("**🤖 ML 학습 설정**")
+            st.markdown("**ML 학습 설정**")
             ml1, ml2 = st.columns(2)
             ml_markets = ml1.multiselect("대상 마켓", MARKETS, default=["KOSPI", "KOSDAQ"], key="ml_markets")
             ml_algorithms = ml2.multiselect(
@@ -291,12 +371,18 @@ def _render_add_schedule():
 
         submitted = st.form_submit_button("스케줄 추가", type="primary")
         if submitted:
+            target_codes = [
+                {"code": code, "name": name}
+                for code, name in st.session_state.get("selected_stocks", {}).items()
+            ]
             if not job_name:
                 st.error("Job 이름은 필수입니다.")
             elif not cron_expr.strip():
                 st.error("크론식은 필수입니다.")
             elif not any(step_flags.values()):
                 st.error("최소 1개 단계를 선택하세요.")
+            elif not target_codes:
+                st.error("종목을 1개 이상 선택하세요.")
             else:
                 try:
                     steps = []
@@ -320,14 +406,17 @@ def _render_add_schedule():
                     data = {
                         "job_name": job_name,
                         "market": market,
-                        "sector": sector or None,
                         "cron_expr": cron_expr.strip(),
                         "days_back": days_back,
                         "description": description or "데이터 수집",
                         "steps": steps,
+                        "target_codes": target_codes,
                     }
                     result = admin_client.create_schedule_job(data)
                     st.success(f"스케줄 추가 완료: {result.get('job_name', '')}")
+                    st.session_state["selected_stocks"] = {}
+                    st.session_state.pop("stock_search_results", None)
+                    st.session_state.pop("sector_search_results", None)
                     st.cache_data.clear()
                 except Exception as e:
                     st.error(f"추가 실패: {e}")
@@ -370,14 +459,15 @@ def _render_execution_history(jobs: list):
         return
 
     for log in logs:
-        _render_log_row(log, jobs)
+        _render_log_card(log, jobs)
 
 
-def _render_log_row(log: dict, jobs: list):
-    """실행 이력 1건을 expander로 렌더링 — 펼치면 파이프라인 상세"""
+def _render_log_card(log: dict, jobs: list):
+    """실행 이력 1건을 카드형으로 렌더링"""
     log_id = log["id"]
     status = log["status"]
     icon = STATUS_ICONS.get(status, "●")
+    color = STATUS_COLORS.get(status, "#888")
     job_name = log.get("job_name") or f"id:{log['job_id']}"
     trigger = log.get("trigger_by", "manual")
     started = utc_to_kst(log.get("started_at"))
@@ -385,131 +475,153 @@ def _render_log_row(log: dict, jobs: list):
     sc = log.get("success_count", 0)
     fc = log.get("failed_count", 0)
     saved = log.get("db_saved_count", 0)
-    trace_id = log.get("trace_id") or "-"
+    total = log.get("total_codes", 0)
 
-    # expander 라벨
-    dur_part = f" {duration_str}" if duration_str else ""
-    exp_label = (
-        f"{icon} #{log_id} {job_name} | {trigger} | {started}{dur_part}"
-        f" | {sc}성공 {fc}실패 {saved}저장"
-    )
+    with st.container(border=True):
+        # ── 헤더: 아이콘 + 이름 + 부가정보 ──
+        st.markdown(
+            f'<div class="log-card-header">'
+            f'<span style="font-size:1.3rem;">{icon}</span>'
+            f'<span class="log-title">#{log_id} {job_name}</span>'
+            f'<span class="log-trigger">{trigger}</span>'
+            f'<span class="log-sub">{started}</span>'
+            f'<span class="log-sub" style="color:{color};font-weight:600;">'
+            f'{duration_str or "진행중"}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-    with st.expander(exp_label, expanded=False):
-        # ── 요약 정보 ──
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("상태", f"{icon} {status}")
-        m2.metric("소요", duration_str or "-")
-        m3.metric("저장", f"{saved}")
-        m4.caption(f"trace: `{trace_id}`")
+        # ── 메트릭 행 ──
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.markdown(metric_card("성공", f"{sc}", color="#4CAF50"), unsafe_allow_html=True)
+        mc2.markdown(metric_card("실패", f"{fc}", color="#f44336" if fc > 0 else "#888"), unsafe_allow_html=True)
+        mc3.markdown(metric_card("저장", f"{saved}"), unsafe_allow_html=True)
+        mc4.markdown(metric_card("종목", f"{total}"), unsafe_allow_html=True)
 
-        # ── 스텝 로그 조회 ──
-        try:
-            step_logs = admin_client.get_step_logs(log_id)
-        except Exception as e:
-            st.warning(f"스텝 로그 조회 실패: {e}")
-            step_logs = []
+        # ── 파이프라인 상세 (펼치기) ──
+        with st.expander("파이프라인 상세", expanded=False):
+            try:
+                step_logs = admin_client.get_step_logs(log_id)
+            except Exception as e:
+                st.warning(f"스텝 로그 조회 실패: {e}")
+                step_logs = []
 
-        if step_logs:
-            # ── 파이프라인 바 (st.columns) ──
-            _render_pipeline_bar_native(step_logs)
+            if step_logs:
+                # 파이프라인 바 (시각 개요)
+                _render_pipeline_bar(step_logs)
 
-            st.markdown("---")
+                # 탭으로 스텝 상세 (클릭하면 해당 스텝만 표시)
+                tab_labels = [
+                    STEP_LABELS.get(sl['step_type'], sl['step_type']).split(" ", 1)[-1]
+                    for sl in step_logs
+                ]
+                tabs = st.tabs(tab_labels)
+                for tab, sl in zip(tabs, step_logs):
+                    with tab:
+                        _render_step_detail(sl, step_logs, log)
+            else:
+                st.caption("스텝 로그 없음 (이전 방식 실행 기록)")
+                if log.get("message"):
+                    st.code(log["message"])
 
-            # ── 각 스텝 상세 (중첩 expander) ──
-            for sl in step_logs:
-                _render_step_expander(sl, step_logs, log)
-        else:
-            st.caption("스텝 로그 없음 (이전 방식으로 실행된 기록)")
-            if log.get("message"):
-                st.code(log["message"])
 
-
-def _render_pipeline_bar_native(step_logs: list):
-    """파이프라인 노드를 st.columns로 렌더링 (HTML 없이 네이티브)"""
-    cols = st.columns(len(step_logs))
+def _render_pipeline_bar(step_logs: list):
+    """파이프라인 노드를 HTML flex 플로우차트로 렌더링"""
+    nodes_html = []
     for i, sl in enumerate(step_logs):
         stype = sl["step_type"]
         status = sl["status"]
-        icon = STATUS_ICONS.get(status, "●")
+        st_icon = STATUS_ICONS.get(status, "●")
         label = STEP_LABELS.get(stype, stype)
-        emoji = label.split(" ")[0] if " " in label else ""
-        name = label.split(" ")[1] if " " in label else label
+        parts = label.split(" ", 1)
+        emoji = parts[0] if len(parts) > 1 else ""
+        name = parts[1] if len(parts) > 1 else label
         dur = _format_duration(sl.get("duration_sec"))
-        summary = (sl.get("summary") or "")[:12]
+        saved = sl.get("saved_count", 0)
 
-        arrow = " →" if i < len(step_logs) - 1 else ""
-        cols[i].markdown(
-            f"**{emoji} {name}**{arrow}\n\n"
-            f"{icon} {dur} · {summary}",
+        meta_parts = []
+        if dur != "-":
+            meta_parts.append(dur)
+        if saved > 0:
+            meta_parts.append(f"{saved}건")
+        meta = " · ".join(meta_parts) if meta_parts else ""
+
+        # 실패/에러만 아이콘 표시, 성공은 테두리 색으로 충분
+        icon_prefix = f"{st_icon} " if status in ("failed", "error", "skipped") else ""
+
+        node = (
+            f'<div class="pipeline-node st-{status}">'
+            f'<div class="node-emoji">{emoji}</div>'
+            f'<div class="node-name">{name}</div>'
+            f'<div class="node-meta">{icon_prefix}{meta}</div>'
+            f'</div>'
         )
+        nodes_html.append(node)
+        if i < len(step_logs) - 1:
+            nodes_html.append('<span class="pipeline-arrow">→</span>')
+
+    st.markdown(
+        f'<div class="pipeline-flow">{"".join(nodes_html)}</div>',
+        unsafe_allow_html=True,
+    )
 
 
-def _render_step_expander(step_data: dict, all_step_logs: list, log: dict):
-    """스텝 1건을 expander로 렌더링"""
+def _render_step_detail(step_data: dict, all_step_logs: list, log: dict):
+    """스텝 1건의 상세 (탭 안에서 직접 렌더링)"""
     stype = step_data["step_type"]
     status = step_data["status"]
     icon = STATUS_ICONS.get(status, "●")
-    label = STEP_LABELS.get(stype, stype)
+    color = STATUS_COLORS.get(status, "#888")
     dur = _format_duration(step_data.get("duration_sec"))
     summary = step_data.get("summary") or ""
     saved = step_data.get("saved_count", 0)
+    is_error = status in ("failed", "error")
 
-    exp_label = f"{icon} {label} — {status} · {dur} · {saved}건 {summary[:30]}"
+    # ── 상태 + 요약 헤더 ──
+    c1, c2, c3, c4 = st.columns(4)
+    c1.markdown(metric_card("상태", f"{icon} {status}", color=color), unsafe_allow_html=True)
+    c2.markdown(metric_card("소요", dur), unsafe_allow_html=True)
+    c3.markdown(metric_card("저장", f"{saved}건"), unsafe_allow_html=True)
+    c4.markdown(
+        metric_card("시작", (step_data.get("started_at") or "-").split(" ")[-1]),
+        unsafe_allow_html=True,
+    )
 
-    with st.expander(exp_label, expanded=(status in ("failed", "error"))):
-        # 타이밍 + 결과
-        c1, c2, c3 = st.columns(3)
-        c1.metric("시작", step_data.get("started_at") or "-")
-        c2.metric("소요", dur)
-        c3.metric("저장", f"{saved}건")
+    if is_error and step_data.get("error_message"):
+        st.error(step_data["error_message"])
 
-        if summary:
-            st.caption(f"결과: {summary}")
+    if summary:
+        st.caption(f"결과: {summary}")
 
-        if step_data.get("error_message"):
-            st.error(f"에러: {step_data['error_message']}")
+    # 의존 스텝 (실패한 것만 경고)
+    deps = STEP_DEPENDENCIES.get(stype, [])
+    if deps:
+        failed_deps = [
+            d for d in deps
+            if any(sl["step_type"] == d and sl["status"] in ("failed", "error") for sl in all_step_logs)
+        ]
+        if failed_deps:
+            st.warning(f"선행 스텝 실패: {', '.join(STEP_LABELS.get(d, d) for d in failed_deps)}")
 
-        # 의존 스텝 안내
-        deps = STEP_DEPENDENCIES.get(stype, [])
-        if deps:
-            dep_statuses = {}
-            for sl in all_step_logs:
-                if sl["step_type"] in deps:
-                    dep_statuses[sl["step_type"]] = sl["status"]
+    # 재실행 버튼 + 로그
+    job_id = log.get("job_id")
+    if job_id:
+        bc1, bc2, _ = st.columns([1, 1, 2])
+        if bc1.button("▶ 이 스텝만", key=f"rerun_step_{log['id']}_{stype}"):
+            try:
+                result = admin_client.run_single_step(job_id, stype)
+                st.info(f"실행 시작: {result.get('message', '')}")
+                st.cache_data.clear()
+            except Exception as e:
+                st.error(f"실행 실패: {e}")
 
-            missing = [d for d in deps if d not in dep_statuses]
-            failed_deps = [d for d, s in dep_statuses.items() if s in ("failed", "error")]
+        if bc2.button("▶▶ 여기서부터", key=f"rerun_from_{log['id']}_{stype}"):
+            try:
+                result = admin_client.run_from_step(job_id, stype)
+                st.info(f"실행 시작: {result.get('message', '')}")
+                st.cache_data.clear()
+            except Exception as e:
+                st.error(f"실행 실패: {e}")
 
-            dep_labels = [STEP_LABELS.get(d, d) for d in deps]
-            st.caption(f"의존: {', '.join(dep_labels)}")
-
-            if missing:
-                st.warning(f"선행 스텝 미실행: {', '.join(STEP_LABELS.get(d, d) for d in missing)}")
-            if failed_deps:
-                st.warning(f"선행 스텝 실패: {', '.join(STEP_LABELS.get(d, d) for d in failed_deps)}")
-
-        # 재실행 버튼
-        job_id = log.get("job_id")
-        if job_id:
-            bc1, bc2, _ = st.columns([1, 1, 2])
-            if bc1.button("▶ 이 스텝만 재실행", key=f"rerun_step_{log['id']}_{stype}"):
-                try:
-                    result = admin_client.run_single_step(job_id, stype)
-                    st.info(f"실행 시작: {result.get('message', '')}")
-                    st.cache_data.clear()
-                except Exception as e:
-                    st.error(f"실행 실패: {e}")
-
-            if bc2.button("▶▶ 여기서부터 실행", key=f"rerun_from_{log['id']}_{stype}"):
-                try:
-                    result = admin_client.run_from_step(job_id, stype)
-                    st.info(f"실행 시작: {result.get('message', '')}")
-                    st.cache_data.clear()
-                except Exception as e:
-                    st.error(f"실행 실패: {e}")
-
-        # 로그 텍스트
-        if step_data.get("log_text"):
-            st.code(step_data["log_text"], language="log")
-        else:
-            st.caption("실행 로그 없음")
+    if step_data.get("log_text"):
+        st.code(step_data["log_text"], language="log")

@@ -67,6 +67,67 @@ def inject_custom_css():
     div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] {
         gap: 0.5rem;
     }
+    /* ── 파이프라인 플로우 ── */
+    .pipeline-flow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        align-items: center;
+        padding: 10px 0;
+    }
+    .pipeline-node {
+        border-radius: 8px;
+        padding: 8px 10px;
+        text-align: center;
+        font-size: 0.78rem;
+        min-width: 68px;
+        border: 2px solid;
+        background: rgba(255,255,255,0.03);
+        line-height: 1.4;
+    }
+    .pipeline-node .node-emoji { font-size: 1.1rem; }
+    .pipeline-node .node-name { font-weight: 600; }
+    .pipeline-node .node-meta {
+        font-size: 0.7rem;
+        color: #aaa;
+        margin-top: 2px;
+    }
+    .pipeline-arrow {
+        color: #555;
+        font-size: 1rem;
+        padding: 0 1px;
+    }
+    /* 상태별 노드 */
+    .pipeline-node.st-success  { border-color: #4CAF50; }
+    .pipeline-node.st-completed { border-color: #4CAF50; }
+    .pipeline-node.st-failed   { border-color: #f44336; }
+    .pipeline-node.st-error    { border-color: #f44336; }
+    .pipeline-node.st-running  { border-color: #1565c0; }
+    .pipeline-node.st-partial  { border-color: #FF9800; }
+    .pipeline-node.st-pending  { border-color: #555; opacity: 0.6; }
+    .pipeline-node.st-skipped  { border-color: #444; opacity: 0.5; }
+    /* ── 로그 카드 헤더 ── */
+    .log-card-header {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    .log-card-header .log-title {
+        font-size: 1.05rem;
+        font-weight: 600;
+    }
+    .log-card-header .log-sub {
+        font-size: 0.82rem;
+        color: #999;
+    }
+    .log-card-header .log-trigger {
+        font-size: 0.72rem;
+        padding: 1px 8px;
+        border-radius: 10px;
+        background: #262730;
+        color: #aaa;
+    }
     </style>
     """, unsafe_allow_html=True)
 

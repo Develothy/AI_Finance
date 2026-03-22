@@ -98,6 +98,20 @@ class AdminAPIClient:
     def run_from_step(_self, job_id: int, from_step: str) -> dict:
         return _self._post(f"/admin/scheduler/jobs/{job_id}/run-from", json={"from_step": from_step})
 
+    # ── 종목 검색 ────────────────────────────────────────
+
+    def search_stocks(_self, keyword: str, market: str = None, limit: int = 50) -> list[dict]:
+        params = {"keyword": keyword, "limit": limit}
+        if market:
+            params["market"] = market
+        return _self._get("/stocks/search", params)
+
+    def search_stocks_by_sector(_self, keyword: str, market: str = None) -> list[dict]:
+        params = {"keyword": keyword}
+        if market:
+            params["market"] = market
+        return _self._get("/stocks/search/sector", params)
+
     # ── ML 모델 ────────────────────────────────────────
 
     @st.cache_data(ttl=10, show_spinner=False)

@@ -572,10 +572,11 @@ class BacktestService:
         start_date: str,
         end_date: str,
         model_ids: list[int] | None,
+        max_codes: int = 50,
     ) -> list[str]:
-        """예측 데이터가 있는 종목 코드 조회"""
+        """예측 데이터가 있는 종목 코드 조회 (상위 max_codes개)"""
         rows = ml_repo.get_predictions(market=market, limit=10000)
-        codes = set()
+        code_counts: dict[str, int] = {}
         for pred, _, _ in rows:
             pred_date = pred.prediction_date
             if hasattr(pred_date, "isoformat"):
@@ -587,8 +588,11 @@ class BacktestService:
                 continue
             if model_ids and pred.model_id not in model_ids:
                 continue
-            codes.add(pred.code)
-        return sorted(codes)
+            code_counts[pred.code] = code_counts.get(pred.code, 0) + 1
+
+        # 예측 빈도가 높은 순으로 상위 max_codes개
+        sorted_codes = sorted(code_counts.keys(), key=lambda c: code_counts[c], reverse=True)
+        return sorted_codes[:max_codes]
 
     @staticmethod
     def _load_model_weights(

@@ -41,14 +41,15 @@ STEP_REGISTRY = {
 
 # ── Step 핸들러 ──
 
-def _handle_price(market, sector, days_back, config, ctx):
+def _handle_price(market, days_back, config, ctx):
     from services import StockService
     from data_collector import DataPipeline
 
     pipeline = DataPipeline()
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=days_back or 7)).strftime("%Y-%m-%d")
-    fetch_result = pipeline.fetch(start_date=start_date, end_date=end_date, market=market, sector=sector)
+    codes = ctx.get("target_codes")
+    fetch_result = pipeline.fetch(start_date=start_date, end_date=end_date, codes=codes, market=market)
     saved = 0
     if fetch_result.data or fetch_result.stock_info:
         svc = StockService(pipeline=pipeline)
@@ -56,57 +57,47 @@ def _handle_price(market, sector, days_back, config, ctx):
             saved = svc.save_to_db(fetch_result.data, fetch_result.market)
         if fetch_result.stock_info:
             svc._save_stock_info(fetch_result.stock_info)
-            ctx["target_codes"] = [s["code"] for s in fetch_result.stock_info]
-    if not ctx.get("target_codes") and fetch_result.data:
-        ctx["target_codes"] = list(fetch_result.data.keys())
-    # target_codes → code_names 매핑 (ctx 초기값 덮어쓰기)
-    if ctx.get("target_codes"):
-        from repositories import StockRepository
-        with database.session() as session:
-            all_cn = StockRepository(session).get_codes_with_names(market)
-            code_set = set(ctx["target_codes"])
-            ctx["code_names"] = [(c, n) for c, n in all_cn if c in code_set]
     return {"saved": saved, "summary": f"{fetch_result.success_count}종목"}
 
 
-def _handle_fundamental(market, sector, days_back, config, ctx):
+def _handle_fundamental(market, days_back, config, ctx):
     from services import FundamentalService
     r = FundamentalService().collect_fundamentals(market=market, codes=ctx.get("target_codes"))
     return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
 
 
-def _handle_market_investor(market, sector, days_back, config, ctx):
+def _handle_market_investor(market, days_back, config, ctx):
     from services import FundamentalService
     r = FundamentalService().collect_market_investor_trading()
     return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
 
 
-def _handle_macro(market, sector, days_back, config, ctx):
+def _handle_macro(market, days_back, config, ctx):
     from services import MacroService
     r = MacroService().collect(days_back=days_back or 30)
     return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
 
 
-def _handle_news(market, sector, days_back, config, ctx):
+def _handle_news(market, days_back, config, ctx):
     from services import NewsService
     news_market = market if market in ("KR", "US") else "KR"
     r = NewsService().collect(market=news_market, codes=ctx.get("code_names"))
     return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
 
 
-def _handle_disclosure(market, sector, days_back, config, ctx):
+def _handle_disclosure(market, days_back, config, ctx):
     from services import DisclosureService
     r = DisclosureService().collect_disclosures(market=market, codes=ctx.get("target_codes"), days=days_back or 60)
     return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
 
 
-def _handle_supply(market, sector, days_back, config, ctx):
+def _handle_supply(market, days_back, config, ctx):
     from services import DisclosureService
     r = DisclosureService().collect_supply_demand(market=market, codes=ctx.get("target_codes"), days=days_back or 60)
     return {"saved": r.get("saved", 0), "summary": f"{r.get('saved', 0)}건"}
 
 
-def _handle_alternative(market, sector, days_back, config, ctx):
+def _handle_alternative(market, days_back, config, ctx):
     from services import AlternativeService
     code_names = ctx.get("code_names")
     target_codes = ctx.get("target_codes")
@@ -123,14 +114,14 @@ def _handle_alternative(market, sector, days_back, config, ctx):
     return {"saved": saved, "summary": f"{saved}건"}
 
 
-def _handle_feature(market, sector, days_back, config, ctx):
+def _handle_feature(market, days_back, config, ctx):
     from ml.feature_engineer import FeatureEngineer
     feat_result = FeatureEngineer().compute_all(market=market, codes=ctx.get("target_codes") or None)
     saved = feat_result.get("success", 0)
     return {"saved": saved, "summary": f"{saved}/{feat_result.get('total', 0)}종목"}
 
 
-def _handle_ml(market, sector, days_back, config, ctx):
+def _handle_ml(market, days_back, config, ctx):
     from ml.training_scheduler import run_training_schedule
     config = config or {}
     ml_result = run_training_schedule(
@@ -148,7 +139,7 @@ def _handle_ml(market, sector, days_back, config, ctx):
     return {"saved": ml_result.get("trained", 0), "summary": f"{ml_result.get('trained', 0)}모델"}
 
 
-def _handle_predict(market, sector, days_back, config, ctx):
+def _handle_predict(market, days_back, config, ctx):
     from ml.predictor import Predictor
     predictor = Predictor()
     codes = ctx.get("target_codes") or []
@@ -213,11 +204,13 @@ class SchedulerService:
 
             all_job_ids = [j.id for j in jobs]
             steps_by_job = repo.get_steps_for_jobs(all_job_ids)
+            codes_by_job = repo.get_target_codes_for_jobs(all_job_ids)
 
             return [
                 ScheduleJobResponse.from_model(
                     j, next_runs.get(j.job_name),
                     steps=steps_by_job.get(j.id, []),
+                    target_codes=codes_by_job.get(j.id, []),
                 )
                 for j in jobs
             ]
@@ -233,7 +226,6 @@ class SchedulerService:
             job_data = {
                 "job_name": req.job_name,
                 "market": req.market,
-                "sector": req.sector,
                 "cron_expr": req.cron_expr,
                 "days_back": req.days_back,
                 "enabled": req.enabled,
@@ -252,10 +244,13 @@ class SchedulerService:
                 steps_data.append(sd)
             steps = repo.replace_steps(job.id, steps_data)
 
+            codes_data = [{"code": tc.code, "name": tc.name} for tc in req.target_codes]
+            target_codes = repo.replace_target_codes(job.id, codes_data)
+
             scheduler = JobScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
             if scheduler:
                 scheduler.sync_job(job.job_name, "add", job, steps=steps)
-            return ScheduleJobResponse.from_model(job, steps=steps)
+            return ScheduleJobResponse.from_model(job, steps=steps, target_codes=target_codes)
 
     def update_job(self, job_id: int, req: ScheduleJobRequest) -> ScheduleJobResponse:
         with database.session() as session:
@@ -275,7 +270,6 @@ class SchedulerService:
             update_data = {
                 "job_name": req.job_name,
                 "market": req.market,
-                "sector": req.sector,
                 "cron_expr": req.cron_expr,
                 "days_back": req.days_back,
                 "enabled": req.enabled,
@@ -294,11 +288,14 @@ class SchedulerService:
                 steps_data.append(sd)
             steps = repo.replace_steps(job.id, steps_data)
 
+            codes_data = [{"code": tc.code, "name": tc.name} for tc in req.target_codes]
+            target_codes = repo.replace_target_codes(job.id, codes_data)
+
             scheduler = JobScheduler.get_running_instance() if SCHEDULER_AVAILABLE else None
             if scheduler:
                 scheduler.sync_job(old_job_name, "remove")
                 scheduler.sync_job(job.job_name, "add", job, steps=steps)
-            return ScheduleJobResponse.from_model(job, steps=steps)
+            return ScheduleJobResponse.from_model(job, steps=steps, target_codes=target_codes)
 
     def delete_job(self, job_id: int) -> dict:
         with database.session() as session:
@@ -338,6 +335,9 @@ class SchedulerService:
                 for s in steps
             ]
 
+            tcs = repo.get_target_codes_for_job(job.id)
+            explicit_codes = [(tc.code, tc.name or "") for tc in tcs]
+
             log = repo.create_log({
                 "job_id": job.id,
                 "started_at": datetime.now(),
@@ -347,13 +347,12 @@ class SchedulerService:
             })
             log_id = log.id
             job_market = job.market
-            job_sector = job.sector
             job_days_back = job.days_back
 
         thread = threading.Thread(
             target=self._run_job,
-            args=(log_id, job_market, job_sector, job_days_back,
-                  steps_data, trace_id, only_step, from_step),
+            args=(log_id, job_market, job_days_back,
+                  steps_data, trace_id, explicit_codes, only_step, from_step),
             daemon=True,
         )
         thread.start()
@@ -441,14 +440,16 @@ class SchedulerService:
                 {"error": str(e)},
             )
 
-    def _run_job(self, log_id: int, market: str, sector: str, days_back: int,
+    def _run_job(self, log_id: int, market: str, days_back: int,
                  steps_data: list[dict], trace_id: str,
+                 explicit_codes: list[tuple[str, str]] = None,
                  only_step: str = None, from_step: str = None):
         """step 기반 통합 잡 실행 (trace_id contextualize + step log 기록)"""
         with loguru_logger.contextualize(trace_id=trace_id):
             try:
                 result = _execute_pipeline(
-                    market, sector, days_back, steps_data,
+                    market, days_back, steps_data,
+                    explicit_codes=explicit_codes,
                     log_id=log_id, trace_id=trace_id,
                     only_step=only_step, from_step=from_step,
                 )
@@ -469,31 +470,12 @@ class SchedulerService:
                 })
 
 
-def _init_ctx(market: str, sector: str) -> dict:
-    """market/sector 기반으로 ctx 사전 초기화 (price step 실패 대비)"""
+def _init_ctx(market: str, explicit_codes: list[tuple[str, str]] = None) -> dict:
+    """명시적 종목 리스트로 ctx 초기화"""
     ctx = {}
-    try:
-        from data_collector.stock_codes import (
-            get_kr_stock_list, filter_kr_stocks_by_sector, is_korean_market,
-        )
-        from repositories import StockRepository
-
-        if is_korean_market(market):
-            listing = get_kr_stock_list(market)
-            filtered = filter_kr_stocks_by_sector(listing, sector)
-            codes = filtered["code"].tolist()
-        else:
-            codes = []
-
-        if codes:
-            ctx["target_codes"] = codes
-            with database.session() as session:
-                all_cn = StockRepository(session).get_codes_with_names(market)
-                code_set = set(codes)
-                ctx["code_names"] = [(c, n) for c, n in all_cn if c in code_set]
-    except Exception as e:
-        logger.warning(f"ctx 사전 초기화 실패: {e}", "_init_ctx")
-
+    if explicit_codes:
+        ctx["target_codes"] = [c for c, n in explicit_codes]
+        ctx["code_names"] = explicit_codes
     return ctx
 
 
@@ -515,8 +497,9 @@ def _capture_step_logs(trace_id: str) -> tuple[int, io.StringIO]:
     return sink_id, buf
 
 
-def _execute_pipeline(market: str, sector: str, days_back: int,
+def _execute_pipeline(market: str, days_back: int,
                       steps_data: list[dict],
+                      explicit_codes: list[tuple[str, str]] = None,
                       log_id: int = None, trace_id: str = None,
                       only_step: str = None, from_step: str = None) -> dict:
     """Step 핸들러 기반 파이프라인 실행 (step log 기록 + 로그 캡처)"""
@@ -524,7 +507,7 @@ def _execute_pipeline(market: str, sector: str, days_back: int,
     total_failed = 0
     total_success = 0
     results = []
-    ctx = _init_ctx(market, sector)
+    ctx = _init_ctx(market, explicit_codes)
 
     sorted_steps = sorted(
         [s for s in steps_data if s.get("enabled", True)],
@@ -583,7 +566,7 @@ def _execute_pipeline(market: str, sector: str, days_back: int,
             sink_id, buf = _capture_step_logs(trace_id)
 
         try:
-            r = handler(market, sector, days_back, step.get("config"), ctx)
+            r = handler(market, days_back, step.get("config"), ctx)
             saved = r.get("saved", 0)
             total_saved += saved
             total_success += 1

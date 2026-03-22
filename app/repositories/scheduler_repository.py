@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
-from models import ScheduleJob, ScheduleLog, JobStep, PipelineStepLog
+from models import ScheduleJob, ScheduleLog, JobStep, JobTargetCode, PipelineStepLog
 
 
 class SchedulerRepository:
@@ -108,6 +108,37 @@ class SchedulerRepository:
             steps.append(step)
         self.session.flush()
         return steps
+
+    # ── JobTargetCode ──
+
+    def get_target_codes_for_job(self, job_id: int) -> list[JobTargetCode]:
+        return (self.session.query(JobTargetCode)
+                .filter(JobTargetCode.job_id == job_id)
+                .order_by(JobTargetCode.id)
+                .all())
+
+    def get_target_codes_for_jobs(self, job_ids: list[int]) -> dict[int, list[JobTargetCode]]:
+        if not job_ids:
+            return {}
+        rows = (self.session.query(JobTargetCode)
+                .filter(JobTargetCode.job_id.in_(job_ids))
+                .order_by(JobTargetCode.id)
+                .all())
+        result = defaultdict(list)
+        for tc in rows:
+            result[tc.job_id].append(tc)
+        return dict(result)
+
+    def replace_target_codes(self, job_id: int, codes_data: list[dict]) -> list[JobTargetCode]:
+        self.session.query(JobTargetCode).filter(JobTargetCode.job_id == job_id).delete()
+        items = []
+        for cd in codes_data:
+            cd["job_id"] = job_id
+            tc = JobTargetCode(**cd)
+            self.session.add(tc)
+            items.append(tc)
+        self.session.flush()
+        return items
 
     # ── PipelineStepLog ──
 

@@ -12,7 +12,7 @@ from db import database
 from repositories import StockRepository
 from data_collector import DataPipeline
 from core import get_logger, log_execution
-from api.schemas import CollectRequest, CollectResponse, StockPriceResponse, StockInfoResponse
+from api.schemas import CollectRequest, CollectResponse, StockPriceResponse, StockInfoResponse, StockSearchResponse
 
 logger = get_logger("service")
 
@@ -329,3 +329,17 @@ class StockService:
                 raise HTTPException(status_code=404, detail=f"섹터 '{sector}'에 해당하는 종목 없음")
 
             return [StockInfoResponse.from_model(s) for s in stocks]
+
+    # ── 종목 검색 ─────────────────────────────────────────
+
+    def search_stocks(self, keyword: str, market: Optional[str] = None, limit: int = 50) -> list[StockSearchResponse]:
+        with self.database.session() as session:
+            repo = StockRepository(session)
+            stocks = repo.search_stocks(keyword, market, limit)
+            return [StockSearchResponse.from_model(s) for s in stocks]
+
+    def search_stocks_by_sector(self, keyword: str, market: Optional[str] = None) -> list[StockSearchResponse]:
+        with self.database.session() as session:
+            repo = StockRepository(session)
+            stocks = repo.search_by_sector_or_industry(keyword, market)
+            return [StockSearchResponse.from_model(s) for s in stocks]

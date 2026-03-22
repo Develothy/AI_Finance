@@ -197,6 +197,32 @@ class StockRepository:
             query = query.filter(StockInfo.market == market)
         return [r[0] for r in query.all()]
 
+    def search_stocks(self, keyword: str, market: Optional[str] = None, limit: int = 50) -> list[StockInfo]:
+        """종목 검색 (code 또는 name 부분 매칭)"""
+        query = self.session.query(StockInfo).filter(
+            (StockInfo.code.ilike(f"%{keyword}%")) |
+            (StockInfo.name.ilike(f"%{keyword}%"))
+        )
+        if market:
+            if market == "KR":
+                query = query.filter(StockInfo.market.in_(["KOSPI", "KOSDAQ"]))
+            else:
+                query = query.filter(StockInfo.market == market)
+        return query.order_by(StockInfo.name).limit(limit).all()
+
+    def search_by_sector_or_industry(self, keyword: str, market: Optional[str] = None) -> list[StockInfo]:
+        """섹터 또는 산업분류 부분 매칭으로 종목 검색"""
+        query = self.session.query(StockInfo).filter(
+            (StockInfo.sector.ilike(f"%{keyword}%")) |
+            (StockInfo.industry.ilike(f"%{keyword}%"))
+        )
+        if market:
+            if market == "KR":
+                query = query.filter(StockInfo.market.in_(["KOSPI", "KOSDAQ"]))
+            else:
+                query = query.filter(StockInfo.market == market)
+        return query.order_by(StockInfo.name).all()
+
     def get_codes_with_names(self, market: str) -> list[tuple[str, str]]:
         """마켓별 (code, name) 목록 (KR이면 KOSPI+KOSDAQ)"""
         query = self.session.query(StockInfo.code, StockInfo.name)

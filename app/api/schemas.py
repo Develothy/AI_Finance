@@ -233,15 +233,40 @@ class JobStepResponse(BaseModel):
         )
 
 
+class JobTargetCodeRequest(BaseModel):
+    code: str
+    name: Optional[str] = None
+
+
+class JobTargetCodeResponse(BaseModel):
+    code: str
+    name: Optional[str] = None
+
+    @classmethod
+    def from_model(cls, tc) -> "JobTargetCodeResponse":
+        return cls(code=tc.code, name=tc.name)
+
+
+class StockSearchResponse(BaseModel):
+    code: str
+    name: Optional[str] = None
+    market: Optional[str] = None
+    industry: Optional[str] = None
+
+    @classmethod
+    def from_model(cls, s) -> "StockSearchResponse":
+        return cls(code=s.code, name=s.name, market=s.market, industry=s.industry)
+
+
 class ScheduleJobRequest(BaseModel):
     job_name: str
     market: str
-    sector: Optional[str] = None
     cron_expr: str
     days_back: int = 7
     enabled: bool = True
     description: Optional[str] = None
     steps: list[JobStepRequest] = []
+    target_codes: list[JobTargetCodeRequest] = []
 
     @model_validator(mode="after")
     def validate_cron(self):
@@ -252,12 +277,17 @@ class ScheduleJobRequest(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_target_codes(self):
+        if not self.target_codes:
+            raise ValueError("target_codes는 최소 1개 이상 필요합니다")
+        return self
+
 
 class ScheduleJobResponse(BaseModel):
     id: int
     job_name: str
     market: str
-    sector: Optional[str]
     cron_expr: str
     days_back: int
     enabled: bool
@@ -266,14 +296,14 @@ class ScheduleJobResponse(BaseModel):
     updated_at: Optional[str]
     next_run_time: Optional[str] = None
     steps: list[JobStepResponse] = []
+    target_codes: list[JobTargetCodeResponse] = []
 
     @classmethod
-    def from_model(cls, job, next_run: Optional[str] = None, steps: list = None):
+    def from_model(cls, job, next_run: Optional[str] = None, steps: list = None, target_codes: list = None):
         return cls(
             id=job.id,
             job_name=job.job_name,
             market=job.market,
-            sector=job.sector,
             cron_expr=job.cron_expr,
             days_back=job.days_back,
             enabled=job.enabled,
@@ -282,6 +312,7 @@ class ScheduleJobResponse(BaseModel):
             updated_at=job.updated_at.strftime("%Y-%m-%d %H:%M:%S") if job.updated_at else None,
             next_run_time=next_run,
             steps=[JobStepResponse.from_model(s) for s in (steps or [])],
+            target_codes=[JobTargetCodeResponse.from_model(tc) for tc in (target_codes or [])],
         )
 
 

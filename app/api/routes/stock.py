@@ -11,6 +11,7 @@ from api.schemas import (
     CollectResponse,
     StockPriceResponse,
     StockInfoResponse,
+    StockSearchResponse,
 )
 from services import stock_service
 
@@ -89,6 +90,25 @@ def get_stock_info(
     if not info:
         raise HTTPException(status_code=404, detail=f"종목 정보 없음: {code}")
     return info
+
+
+@router.get("/search", response_model=list[StockSearchResponse])
+def search_stocks(
+    keyword: str = Query(description="종목코드 또는 종목명 검색어"),
+    market: Optional[str] = Query(default=None, description="KOSPI, KOSDAQ, KR"),
+    limit: int = Query(default=50, le=200),
+):
+    """종목 검색 (code 또는 name 부분 매칭)"""
+    return stock_service.search_stocks(keyword, market, limit)
+
+
+@router.get("/search/sector", response_model=list[StockSearchResponse])
+def search_stocks_by_sector(
+    keyword: str = Query(description="섹터 또는 산업분류 검색어 (예: 반도체)"),
+    market: Optional[str] = Query(default=None, description="KOSPI, KOSDAQ, KR"),
+):
+    """섹터/산업분류 검색으로 종목 일괄 조회"""
+    return stock_service.search_stocks_by_sector(keyword, market)
 
 
 @router.get("/stocks/sector/{sector}", response_model=list[StockInfoResponse])

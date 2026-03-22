@@ -93,6 +93,12 @@ def _render_model_race():
             key="race_model_select",
         )
 
+        codes_input = st.text_input(
+            "종목 코드 (쉼표 구분, 비우면 전종목)",
+            placeholder="005930, 000660, 042700",
+            key="race_model_codes",
+        )
+
         c3, c4 = st.columns([1, 1])
         initial_capital = c3.number_input(
             "초기 자본금", value=10_000_000, step=1_000_000,
@@ -108,6 +114,7 @@ def _render_model_race():
 
         selected_ids = [model_options[lbl] for lbl in selected_labels]
         period_days = PERIOD_PRESETS[period_label]
+        codes = [c.strip() for c in codes_input.split(",") if c.strip()] if codes_input.strip() else None
 
         end_dt = datetime.now()
         start_dt = end_dt - timedelta(days=period_days)
@@ -115,6 +122,7 @@ def _render_model_race():
         data = {
             "market": market,
             "model_ids": selected_ids,
+            "codes": codes,
             "start_date": start_dt.strftime("%Y-%m-%d"),
             "end_date": end_dt.strftime("%Y-%m-%d"),
             "initial_capital": initial_capital,

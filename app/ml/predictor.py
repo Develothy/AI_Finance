@@ -166,10 +166,20 @@ class Predictor:
         feature_columns = saved["feature_columns"]
         target_column = saved.get("target_column", ml_model.target_column)
 
-        # 2. 피처 추출
+        # 2. 외부 피처 로드 (거시지표 + 시장센티먼트)
+        from .feature_loader import EXTERNAL_FEATURE_NAMES, get_external_features_for_date
+        with database.session() as ext_session:
+            external_data = get_external_features_for_date(
+                ext_session, feature_row.date, market,
+            )
+
+        # 3. 피처 추출
         feature_values = []
         for col in feature_columns:
-            val = getattr(feature_row, col, None)
+            if col in EXTERNAL_FEATURE_NAMES:
+                val = external_data.get(col)
+            else:
+                val = getattr(feature_row, col, None)
             if val is None:
                 feature_values.append(np.nan)
             else:

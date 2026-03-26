@@ -266,7 +266,9 @@ class ModelTrainer:
 
     def _load_data(self, market: str, features: list[str], target_column: str,
                    target_codes: list[str] = None) -> pd.DataFrame:
-        """feature_store에서 학습 데이터 로드. target_codes 지정 시 해당 종목만."""
+        """feature_store + 외부 소스에서 학습 데이터 로드. target_codes 지정 시 해당 종목만."""
+        from .feature_loader import EXTERNAL_FEATURE_NAMES, merge_external_features
+
         with database.session() as session:
             repo = MLRepository(session)
             rows = repo.get_features_by_market(market, codes=target_codes)
@@ -274,10 +276,13 @@ class ModelTrainer:
             if not rows:
                 raise ValueError(f"피처 데이터 없음: {market}")
 
+            # feature_store 컬럼만 추출 (외부 피처 제외)
+            fs_features = [c for c in features if c not in EXTERNAL_FEATURE_NAMES]
+
             data = []
             for r in rows:
                 row_dict = {"date": r.date}
-                for col in features:
+                for col in fs_features:
                     val = getattr(r, col, None)
                     row_dict[col] = float(val) if val is not None else None
                 target_val = getattr(r, target_column, None)
@@ -287,6 +292,9 @@ class ModelTrainer:
             df = pd.DataFrame(data)
             # 타겟만 dropna (피처 NaN은 알고리즘/impute에서 처리)
             df = df.dropna(subset=[target_column])
+
+            # 외부 피처 병합 (거시지표 + 시장센티먼트)
+            df = merge_external_features(df, session, market, features)
 
             nan_counts = df[features].isna().sum()
             nan_features = nan_counts[nan_counts > 0]

@@ -15,7 +15,7 @@ from core import get_logger
 from core.market_calendar import is_trading_day, _get_calendar, _resolve_exchange
 from db import database
 from indicators import calc_sma, calc_ema, calc_rsi, calc_macd, calc_bollinger_bands, calc_obv
-from models import StockPrice, StockFundamental, FinancialStatement, MacroIndicator, StockInfo
+from models import StockPrice, StockFundamental, FinancialStatement, StockInfo
 from repositories import MLRepository
 from repositories.stock_repository import StockRepository
 from repositories.news_repository import NewsRepository
@@ -98,28 +98,9 @@ _ALTERNATIVE_FEATURE_COLUMNS = [
     "community_engagement_ratio", "alternative_activity_index",
 ]
 
-# indicator_name → feature_store 컬럼명 매핑
-_MACRO_COLUMN_MAP = {
-    "KRW_USD": "krw_usd",
-    "VIX": "vix",
-    "KOSPI": "kospi_index",
-    "SP500": "sp500",
-    "US_10Y": "us_10y",
-    "KR_3Y": "kr_3y",
-    "WTI": "wti",
-    "GOLD": "gold",
-    "FED_RATE": "fed_rate",
-    "USD_INDEX": "usd_index",
-    "US_CPI": "us_cpi",
-}
-
-# 월별/분기별 지표 — forward-fill 대상 (일별 지표는 left join만으로 충분)
-_MACRO_FFILL_COLUMNS = {"us_cpi"}
-
-# Phase 4 뉴스 센티먼트 피처 컬럼
+# Phase 4 뉴스 센티먼트 피처 컬럼 (종목별만; 시장 센티먼트는 feature_loader에서 외부 로드)
 _NEWS_FEATURE_COLUMNS = [
     "news_sentiment", "news_volume", "news_sentiment_std",
-    "market_sentiment", "market_news_volume",
 ]
 
 TARGET_COLUMNS = [
@@ -220,10 +201,9 @@ class FeatureEngineer:
                 features_df, market, code, session,
             )
 
-            # 3.6 거시 피처 병합 (Phase 3)
-            features_df = self._merge_macro_features(features_df, session)
+            # 3.6 거시 피처 — feature_store에 저장하지 않음 (학습/예측 시 macro_indicator에서 직접 로드)
 
-            # 3.7 뉴스 센티먼트 피처 병합 (Phase 4)
+            # 3.7 뉴스 센티먼트 피처 병합 (Phase 4, 종목별만)
             features_df = self._merge_news_features(
                 features_df, market, code, session,
             )
@@ -570,72 +550,7 @@ class FeatureEngineer:
 
         return df
 
-    def _merge_macro_features(
-        self,
-        df: pd.DataFrame,
-        session,
-    ) -> pd.DataFrame:
-        """
-        거시 피처를 기존 피처 DataFrame에 병합 (Phase 3)
-
-        macro_indicator 테이블에서 날짜 기준으로 피벗 후 left join.
-        데이터 없으면 NULL 유지 (graceful).
-        """
-        if df.empty:
-            return df
-
-        min_date = df["date"].min()
-        max_date = df["date"].max()
-
-        from repositories import MacroRepository
-        macro_rows = MacroRepository(session).get_all_by_date_range(
-            start_date=str(min_date), end_date=str(max_date),
-        )
-
-        if macro_rows:
-            macro_df = pd.DataFrame([{
-                "date": r.date,
-                "indicator_name": r.indicator_name,
-                "value": float(r.value) if r.value else None,
-            } for r in macro_rows])
-
-            # 피벗: (date) × (indicator_name) → value
-            pivot = macro_df.pivot_table(
-                index="date",
-                columns="indicator_name",
-                values="value",
-                aggfunc="first",
-            )
-
-            # indicator_name → feature_store 컬럼명 매핑
-            rename = {k: v for k, v in _MACRO_COLUMN_MAP.items() if k in pivot.columns}
-            pivot = pivot.rename(columns=rename)
-            pivot = pivot.reset_index()
-
-            # 월별 지표 forward-fill (CPI 등: 발표일 이후 다음 발표까지 동일 값 유지)
-            for col in _MACRO_FFILL_COLUMNS:
-                if col in pivot.columns:
-                    pivot[col] = pivot[col].ffill()
-
-            # 필요 없는 컬럼 제거 (매핑에 없는 지표)
-            keep_cols = ["date"] + [v for v in _MACRO_COLUMN_MAP.values() if v in pivot.columns]
-            pivot = pivot[keep_cols]
-
-            df = df.merge(pivot, on="date", how="left")
-
-            # merge 후에도 월별 지표는 forward-fill (feature_store 날짜에 빈 날 채우기)
-            for col in _MACRO_FFILL_COLUMNS:
-                if col in df.columns:
-                    df[col] = df[col].ffill()
-        else:
-            logger.info("거시지표 데이터 없음 — NULL 유지", "_merge_macro_features")
-
-        # 컬럼 보장 (데이터 없어도 컬럼은 존재해야 함)
-        for col in _MACRO_COLUMN_MAP.values():
-            if col not in df.columns:
-                df[col] = None
-
-        return df
+    # _merge_macro_features() 삭제됨 — 거시 피처는 feature_loader에서 학습/예측 시 로드
 
     def _merge_news_features(
         self,
@@ -647,9 +562,7 @@ class FeatureEngineer:
         """
         뉴스 센티먼트 피처를 기존 피처 DataFrame에 병합 (Phase 4)
 
-        1) 종목별 일별 센티먼트: news_sentiment, news_volume, news_sentiment_std
-        2) 시장 전체 일별 센티먼트: market_sentiment, market_news_volume
-        3) 데이터 없으면 NULL 유지 (graceful)
+        종목별 일별 센티먼트만 저장. 시장센티먼트는 feature_loader에서 학습/예측 시 외부 로드.
         """
         if df.empty:
             return df
@@ -661,21 +574,13 @@ class FeatureEngineer:
 
         repo = NewsRepository(session)
 
-        # 1) 종목별 센티먼트
+        # 종목별 센티먼트
         stock_sent = repo.get_daily_sentiment(code, extended_min, max_date)
         if stock_sent:
             sent_df = pd.DataFrame(stock_sent)
             sent_df = self._snap_to_trading_day(sent_df, market,
                                                  ["news_sentiment", "news_volume", "news_sentiment_std"])
             df = df.merge(sent_df, on="date", how="left")
-
-        # 2) 시장 전체 센티먼트
-        market_sent = repo.get_daily_market_sentiment(extended_min, max_date, market)
-        if market_sent:
-            msent_df = pd.DataFrame(market_sent)
-            msent_df = self._snap_to_trading_day(msent_df, market,
-                                                  ["market_sentiment", "market_news_volume"])
-            df = df.merge(msent_df, on="date", how="left")
 
         # 컬럼 보장 (데이터 없어도 컬럼은 존재해야 함)
         for col in _NEWS_FEATURE_COLUMNS:

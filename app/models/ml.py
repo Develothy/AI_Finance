@@ -73,25 +73,14 @@ class FeatureStore(ModelBase):
     roe = Column(Numeric(10, 2))
     debt_ratio = Column(Numeric(10, 2))
 
-    # 거시 피처 (Phase 3)
-    krw_usd = Column(Numeric(10, 4))
-    vix = Column(Numeric(8, 4))
-    kospi_index = Column(Numeric(10, 2))
-    us_10y = Column(Numeric(8, 4))
-    kr_3y = Column(Numeric(8, 4))
-    sp500 = Column(Numeric(10, 2))
-    wti = Column(Numeric(10, 2))
-    gold = Column(Numeric(10, 2))
-    fed_rate = Column(Numeric(8, 4))      # 미국 기준금리 (FRED DFF)
-    usd_index = Column(Numeric(10, 4))    # 달러 인덱스 (FRED DTWEXBGS)
-    us_cpi = Column(Numeric(10, 4))       # 미국 CPI (FRED CPIAUCSL, 월별 forward-fill)
+    # 거시 피처 (Phase 3) — feature_store에 저장하지 않음
+    # macro_indicator 테이블에서 학습/예측 시 직접 로드 (3NF 정규화)
 
-    # 뉴스 센티먼트 피처 (Phase 4)
+    # 뉴스 센티먼트 피처 (Phase 4, 종목별만)
     news_sentiment = Column(Numeric(6, 4))       # 종목별 일평균 센티먼트 (-1 ~ +1)
     news_volume = Column(Integer)                 # 종목별 일간 뉴스 건수
     news_sentiment_std = Column(Numeric(6, 4))    # 뉴스 센티먼트 표준편차
-    market_sentiment = Column(Numeric(6, 4))      # 시장 전체 일평균 센티먼트
-    market_news_volume = Column(Integer)           # 시장 전체 일간 뉴스 건수
+    # market_sentiment, market_news_volume — news_sentiment 테이블에서 학습/예측 시 직접 로드
 
     # 공시 피처 (Phase 5A)
     disclosure_count_30d = Column(Integer)                  # 최근 30일 공시 건수

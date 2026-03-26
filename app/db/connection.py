@@ -73,10 +73,11 @@ class _Database:
             session.close()
 
     def create_tables(self):
-        """테이블 생성 + 누락 컬럼 자동 추가"""
+        """테이블 생성 + 누락 컬럼 자동 추가 + 불필요 컬럼 삭제"""
         self._ensure_initialized()
         ModelBase.metadata.create_all(self._engine)
         self._migrate_missing_columns()
+        self._migrate_drop_obsolete_columns()
 
     def _migrate_missing_columns(self):
         """모델에 정의된 컬럼 중 DB에 없는 컬럼을 ALTER TABLE로 추가"""
@@ -107,6 +108,44 @@ class _Database:
                         f"컬럼 추가 실패: {table_name}.{col.name} - {e}",
                         "_migrate_missing_columns",
                     )
+
+    # feature_store 정규화로 제거된 컬럼 (거시지표 + 시장센티먼트)
+    _OBSOLETE_COLUMNS = {
+        "feature_store": [
+            "krw_usd", "vix", "kospi_index", "us_10y", "kr_3y",
+            "sp500", "wti", "gold", "fed_rate", "usd_index", "us_cpi",
+            "market_sentiment", "market_news_volume",
+        ],
+    }
+
+    def _migrate_drop_obsolete_columns(self):
+        """모델에서 제거된 컬럼을 DB에서도 DROP"""
+        insp = inspect(self._engine)
+
+        for table_name, columns in self._OBSOLETE_COLUMNS.items():
+            if not insp.has_table(table_name):
+                continue
+
+            existing_cols = {c["name"] for c in insp.get_columns(table_name)}
+            model_cols = {
+                c.name for c in ModelBase.metadata.tables[table_name].columns
+            } if table_name in ModelBase.metadata.tables else set()
+
+            for col_name in columns:
+                if col_name in existing_cols and col_name not in model_cols:
+                    try:
+                        sql = f'ALTER TABLE {table_name} DROP COLUMN {col_name}'
+                        with self._engine.begin() as conn:
+                            conn.execute(text(sql))
+                        logger.info(
+                            f"컬럼 삭제: {table_name}.{col_name}",
+                            "_migrate_drop",
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"컬럼 삭제 실패: {table_name}.{col_name} - {e}",
+                            "_migrate_drop",
+                        )
 
     def drop_tables(self):
         """테이블 삭제"""

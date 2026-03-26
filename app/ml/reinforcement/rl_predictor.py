@@ -76,10 +76,20 @@ class RLPredictor:
             logger.warning(f"피처 없음: {market}:{code}", "predict_single")
             return None
 
+        # 3.5 외부 피처 로드 (거시지표 + 시장센티먼트)
+        from ml.feature_loader import EXTERNAL_FEATURE_NAMES, get_external_features_for_date
+        with database.session() as ext_session:
+            external_data = get_external_features_for_date(
+                ext_session, latest.date, market,
+            )
+
         # 4. 피처 추출
         feature_values = []
         for col in feature_columns:
-            val = getattr(latest, col, None)
+            if col in EXTERNAL_FEATURE_NAMES:
+                val = external_data.get(col)
+            else:
+                val = getattr(latest, col, None)
             feature_values.append(float(val) if val is not None else np.nan)
 
         X = np.array([feature_values], dtype=np.float32)

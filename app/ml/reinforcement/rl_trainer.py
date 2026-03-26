@@ -400,7 +400,9 @@ class RLTrainer:
     def _load_data(
         self, market: str, features: list[str],
     ) -> pd.DataFrame:
-        """feature_store에서 학습 데이터 로드 (code + close 컬럼 포함)."""
+        """feature_store + 외부 소스에서 학습 데이터 로드 (code + close 컬럼 포함)."""
+        from ml.feature_loader import EXTERNAL_FEATURE_NAMES, merge_external_features
+
         with database.session() as session:
             repo = MLRepository(session)
             rows = repo.get_features_by_market(market)
@@ -408,13 +410,15 @@ class RLTrainer:
             if not rows:
                 raise ValueError(f"피처 데이터 없음: {market}")
 
+            fs_features = [c for c in features if c not in EXTERNAL_FEATURE_NAMES]
+
             data = []
             for r in rows:
                 row_dict = {"date": r.date, "code": r.code}
                 # close는 환경에서 원가로 사용
                 close_val = getattr(r, "close", None)
                 row_dict["close"] = float(close_val) if close_val is not None else None
-                for col in features:
+                for col in fs_features:
                     val = getattr(r, col, None)
                     row_dict[col] = float(val) if val is not None else None
                 data.append(row_dict)
@@ -422,6 +426,9 @@ class RLTrainer:
             df = pd.DataFrame(data)
             # close가 없으면 사용 불가
             df = df.dropna(subset=["close"])
+
+            # 외부 피처 병합 (거시지표 + 시장센티먼트)
+            df = merge_external_features(df, session, market, features)
 
             nan_counts = df[features].isna().sum()
             nan_features = nan_counts[nan_counts > 0]

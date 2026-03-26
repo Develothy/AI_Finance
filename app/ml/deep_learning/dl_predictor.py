@@ -64,12 +64,47 @@ class DeepLearningPredictor:
 
         recent_rows = rows[-seq_len:]
 
+        # 2.5 외부 피처 로드 (거시지표 + 시장센티먼트)
+        from ml.feature_loader import EXTERNAL_FEATURE_NAMES, load_macro_df, load_market_sentiment_df
+        from ml.feature_engineer import FeatureEngineer
+
+        min_date = recent_rows[0].date
+        max_date = recent_rows[-1].date
+
+        external_by_date = {}
+        with database.session() as ext_session:
+            macro_df = load_macro_df(ext_session, min_date, max_date)
+            if not macro_df.empty:
+                for _, row in macro_df.iterrows():
+                    d = row["date"]
+                    external_by_date.setdefault(d, {}).update(
+                        {col: row[col] for col in macro_df.columns if col != "date" and pd.notna(row[col])}
+                    )
+
+            from datetime import timedelta
+            market_df = load_market_sentiment_df(
+                ext_session, min_date - timedelta(days=3), max_date, market,
+            )
+            if not market_df.empty:
+                market_df = FeatureEngineer._snap_to_trading_day(
+                    market_df, market, ["market_sentiment", "market_news_volume"],
+                )
+                for _, row in market_df.iterrows():
+                    d = row["date"]
+                    external_by_date.setdefault(d, {}).update(
+                        {col: row[col] for col in market_df.columns if col != "date" and pd.notna(row[col])}
+                    )
+
         # 3. 피처 배열 구성
         feature_array = []
         for row in recent_rows:
             row_vals = []
+            ext = external_by_date.get(row.date, {})
             for col in feature_columns:
-                val = getattr(row, col, None)
+                if col in EXTERNAL_FEATURE_NAMES:
+                    val = ext.get(col)
+                else:
+                    val = getattr(row, col, None)
                 row_vals.append(float(val) if val is not None else np.nan)
             feature_array.append(row_vals)
 

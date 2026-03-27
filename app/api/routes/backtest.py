@@ -129,6 +129,7 @@ def run_model_race(req: ModelRaceRequest):
             initial_capital=req.initial_capital,
             transaction_fee=req.transaction_fee, tax_rate=req.tax_rate,
             max_position_pct=req.max_position_pct,
+            auto_backfill=req.auto_backfill,
         )
         return ModelRaceResponse(**result)
     except ValueError as e:

@@ -149,6 +149,58 @@ class MLRepository:
             FeatureStore.code == code,
         ).order_by(FeatureStore.date.desc()).first()
 
+    def get_feature_dates(
+        self, market: str, codes: list[str], start_date: str, end_date: str,
+    ) -> set[tuple[str, str]]:
+        """feature_store의 (code, date_str) 쌍 집합 반환"""
+        rows = (
+            self.session.query(FeatureStore.code, FeatureStore.date)
+            .filter(
+                FeatureStore.market == market,
+                FeatureStore.code.in_(codes),
+                FeatureStore.date >= start_date,
+                FeatureStore.date <= end_date,
+            )
+            .all()
+        )
+        return {(r[0], str(r[1])) for r in rows}
+
+    def get_prediction_dates(
+        self, model_ids: list[int], market: str,
+        codes: list[str], start_date: str, end_date: str,
+    ) -> set[tuple[str, str]]:
+        """ml_prediction의 (code, date_str) 쌍 집합 반환"""
+        rows = (
+            self.session.query(MLPrediction.code, MLPrediction.prediction_date)
+            .filter(
+                MLPrediction.model_id.in_(model_ids),
+                MLPrediction.market == market,
+                MLPrediction.code.in_(codes),
+                MLPrediction.prediction_date >= start_date,
+                MLPrediction.prediction_date <= end_date,
+            )
+            .all()
+        )
+        return {(r[0], str(r[1])) for r in rows}
+
+    def get_features_by_codes_and_dates(
+        self, market: str, code_date_pairs: set[tuple[str, str]],
+    ) -> list[FeatureStore]:
+        """(code, date) 쌍에 해당하는 FeatureStore 행 bulk 조회"""
+        if not code_date_pairs:
+            return []
+        from sqlalchemy import tuple_
+        pairs = list(code_date_pairs)
+        return (
+            self.session.query(FeatureStore)
+            .filter(
+                FeatureStore.market == market,
+                tuple_(FeatureStore.code, FeatureStore.date).in_(pairs),
+            )
+            .order_by(FeatureStore.date, FeatureStore.code)
+            .all()
+        )
+
     # ============================================================
     # MLModel
     # ============================================================

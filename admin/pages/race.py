@@ -104,6 +104,10 @@ def _render_model_race():
             "초기 자본금", value=10_000_000, step=1_000_000,
             min_value=1_000_000, key="race_model_capital",
         )
+        auto_backfill = c4.checkbox(
+            "빠진 날짜 소급 예측", value=True, key="race_auto_backfill",
+            help="예측을 안 돌린 날짜가 있으면 자동으로 소급 예측을 생성합니다",
+        )
 
         run_btn = st.button("레이스 시작", key="run_model_race", type="primary")
 
@@ -126,6 +130,7 @@ def _render_model_race():
             "start_date": start_dt.strftime("%Y-%m-%d"),
             "end_date": end_dt.strftime("%Y-%m-%d"),
             "initial_capital": initial_capital,
+            "auto_backfill": auto_backfill,
         }
 
         with st.spinner("모델 레이스 실행 중..."):
@@ -153,6 +158,13 @@ def _render_model_race_result(result: dict):
     sc2.metric("성공", summary.get("success_count", 0))
     sc3.metric("1위", f"{summary.get('best_model', '-')} ({pct(summary.get('best_return'))})")
     sc4.metric("꼴찌", f"{summary.get('worst_model', '-')} ({pct(summary.get('worst_return'))})")
+
+    # 소급 예측 통계
+    total_filled = sum(
+        (p.get("backfill_stats") or {}).get("filled", 0) for p in participants
+    )
+    if total_filled > 0:
+        st.caption(f"소급 예측 {total_filled}건 자동 생성")
 
     st.markdown("---")
 

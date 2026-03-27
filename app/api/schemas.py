@@ -835,6 +835,7 @@ class ModelRaceRequest(BaseModel):
     transaction_fee: float = 0.00015
     tax_rate: float = 0.0023
     max_position_pct: float = 0.2
+    auto_backfill: bool = True
 
 
 class StockRaceRequest(BaseModel):
@@ -860,6 +861,7 @@ class ModelRaceParticipant(BaseModel):
     metrics: BacktestMetricsResponse = BacktestMetricsResponse()
     equity_curve: list[RaceEquityPoint] = []
     error_message: Optional[str] = None
+    backfill_stats: Optional[dict] = None
 
 
 class StockRaceParticipant(BaseModel):

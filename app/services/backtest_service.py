@@ -219,6 +219,7 @@ class BacktestService:
         transaction_fee: float = 0.00015,
         tax_rate: float = 0.0023,
         max_position_pct: float = 0.2,
+        auto_backfill: bool = True,
     ) -> dict:
         """모델 레이스: 각 모델을 개별 백테스트하여 수익률 경주 비교"""
         race_group = str(uuid.uuid4())
@@ -255,6 +256,10 @@ class BacktestService:
                     "all_version_ids": all_ids,
                 }
 
+            # codes 미지정 시 feature_store 기반으로 종목 추출
+            if not codes:
+                codes = self._get_codes_from_features(ml_repo, market, start_date, end_date)
+
         # 각 모델별 개별 백테스트
         participants = []
         for model_id, meta in model_meta.items():
@@ -267,7 +272,29 @@ class BacktestService:
                 "metrics": {},
                 "equity_curve": [],
                 "error_message": None,
+                "backfill_stats": None,
             }
+
+            # 소급 예측 생성
+            if auto_backfill and codes:
+                try:
+                    from ml.predictor import Predictor
+                    backfill_stats = Predictor().backfill_gap_predictions(
+                        market=market, codes=codes,
+                        start_date=start_date, end_date=end_date,
+                        model_id=model_id,
+                        all_version_ids=meta["all_version_ids"],
+                    )
+                    participant["backfill_stats"] = backfill_stats
+                    if backfill_stats.get("filled", 0) > 0:
+                        logger.info(
+                            f"소급 예측 완료: {meta['model_name']} — "
+                            f"{backfill_stats['filled']}건 생성"
+                        )
+                except Exception as e:
+                    logger.warning(f"소급 예측 실패: {meta['model_name']} — {e}")
+                    participant["backfill_stats"] = {"filled": 0, "errors": -1}
+
             try:
                 # 같은 model_name의 전체 버전 예측을 사용
                 result = self.run_backtest(
@@ -593,6 +620,34 @@ class BacktestService:
         # 예측 빈도가 높은 순으로 상위 max_codes개
         sorted_codes = sorted(code_counts.keys(), key=lambda c: code_counts[c], reverse=True)
         return sorted_codes[:max_codes]
+
+    @staticmethod
+    def _get_codes_from_features(
+        ml_repo: MLRepository,
+        market: str,
+        start_date: str,
+        end_date: str,
+        max_codes: int = 50,
+    ) -> list[str]:
+        """feature_store에서 피처가 있는 종목 코드 조회 (상위 max_codes개)"""
+        from models import FeatureStore
+        from sqlalchemy import func
+        rows = (
+            ml_repo.session.query(
+                FeatureStore.code,
+                func.count(FeatureStore.date).label("cnt"),
+            )
+            .filter(
+                FeatureStore.market == market,
+                FeatureStore.date >= start_date,
+                FeatureStore.date <= end_date,
+            )
+            .group_by(FeatureStore.code)
+            .order_by(func.count(FeatureStore.date).desc())
+            .limit(max_codes)
+            .all()
+        )
+        return [r[0] for r in rows]
 
     @staticmethod
     def _load_model_weights(

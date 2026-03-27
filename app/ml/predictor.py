@@ -241,3 +241,229 @@ class Predictor:
             "signal": signal,
             "confidence": confidence,
         }
+
+    # ============================================================
+    # 소급 예측 (Backfill)
+    # ============================================================
+
+    def backfill_gap_predictions(
+        self,
+        market: str,
+        codes: list[str],
+        start_date: str,
+        end_date: str,
+        model_id: int,
+        all_version_ids: list[int],
+        batch_size: int = 500,
+    ) -> dict:
+        """feature_store에는 있지만 prediction이 없는 gap 날짜에 소급 예측 생성.
+
+        Returns:
+            {"filled": int, "skipped": int, "errors": int}
+        """
+        with database.session() as session:
+            repo = MLRepository(session)
+
+            # 1. 모델 로드
+            ml_model = repo.get_model(model_id)
+            if not ml_model or not ml_model.model_path:
+                return {"filled": 0, "skipped": 0, "errors": 0}
+
+            # RL/DL 모델은 스킵
+            if ml_model.model_path.endswith((".zip", ".pt")):
+                logger.info(f"Backfill 스킵 (RL/DL): {ml_model.model_name}")
+                return {"filled": 0, "skipped": 0, "errors": 0}
+
+            saved = joblib.load(ml_model.model_path)
+            model = saved["model"]
+            scaler = saved["scaler"]
+            feature_columns = saved["feature_columns"]
+            target_column = saved.get("target_column", ml_model.target_column)
+            imputer = saved.get("imputer")
+
+            # 2. Gap 감지
+            feature_dates = repo.get_feature_dates(market, codes, start_date, end_date)
+            prediction_dates = repo.get_prediction_dates(
+                all_version_ids, market, codes, start_date, end_date,
+            )
+            gap_pairs = feature_dates - prediction_dates
+
+            if not gap_pairs:
+                logger.info(f"Backfill 불필요: {ml_model.model_name} (gap 없음)")
+                return {"filled": 0, "skipped": len(feature_dates), "errors": 0}
+
+            logger.info(
+                f"Backfill 시작: {ml_model.model_name} — "
+                f"gap {len(gap_pairs)}건 / 전체 {len(feature_dates)}건"
+            )
+
+            # 3. Gap 날짜 FeatureStore 벌크 조회
+            gap_features = repo.get_features_by_codes_and_dates(market, gap_pairs)
+            if not gap_features:
+                return {"filled": 0, "skipped": len(feature_dates), "errors": 0}
+
+            # 4. 외부 피처 캐시 구축
+            external_cache = self._build_external_cache(
+                session, start_date, end_date, market, feature_columns,
+            )
+
+            # 5. 배치 예측 + 저장
+            predictions = []
+            filled = 0
+            errors = 0
+
+            for feat in gap_features:
+                try:
+                    result = self._predict_with_cache(
+                        feat, model, scaler, feature_columns,
+                        imputer, target_column, external_cache, market,
+                    )
+                    if result:
+                        predictions.append({
+                            "model_id": model_id,
+                            "market": market,
+                            "code": feat.code,
+                            "prediction_date": feat.date,
+                            "target_date": result["target_date"],
+                            "predicted_class": result["predicted_class"],
+                            "probability_up": result["probability_up"],
+                            "probability_down": result["probability_down"],
+                            "signal": result["signal"],
+                            "confidence": result["confidence"],
+                        })
+                        filled += 1
+                except Exception:
+                    errors += 1
+
+                if len(predictions) >= batch_size:
+                    repo.upsert_predictions(predictions)
+                    predictions.clear()
+
+            if predictions:
+                repo.upsert_predictions(predictions)
+
+            logger.info(
+                f"Backfill 완료: {ml_model.model_name} — "
+                f"생성 {filled}건, 에러 {errors}건"
+            )
+            return {"filled": filled, "skipped": len(prediction_dates), "errors": errors}
+
+    def _build_external_cache(
+        self, session, start_date: str, end_date: str,
+        market: str, feature_columns: list[str],
+    ) -> dict[str, dict]:
+        """기간 전체의 외부 피처를 날짜별 dict 캐시로 구축.
+
+        Returns:
+            {date_str: {"krw_usd": 1200.5, "vix": 15.2, ...}}
+        """
+        from .feature_loader import (
+            EXTERNAL_FEATURE_NAMES, MACRO_FEATURE_NAMES,
+            MARKET_SENTIMENT_FEATURE_NAMES,
+            load_macro_df, load_market_sentiment_df,
+        )
+
+        needed = [c for c in feature_columns if c in EXTERNAL_FEATURE_NAMES]
+        if not needed:
+            return {}
+
+        cache: dict[str, dict] = {}
+
+        # 거시지표
+        needed_macro = [c for c in needed if c in MACRO_FEATURE_NAMES]
+        if needed_macro:
+            from datetime import timedelta
+            extended_start = pd.Timestamp(start_date) - timedelta(days=7)
+            macro_df = load_macro_df(session, str(extended_start.date()), end_date)
+            if not macro_df.empty:
+                macro_df = macro_df.sort_values("date").ffill()
+                for _, row in macro_df.iterrows():
+                    d = str(row["date"])
+                    if d not in cache:
+                        cache[d] = {}
+                    for col in needed_macro:
+                        if col in row.index and pd.notna(row[col]):
+                            cache[d][col] = float(row[col])
+
+        # 시장센티먼트
+        needed_market = [c for c in needed if c in MARKET_SENTIMENT_FEATURE_NAMES]
+        if needed_market:
+            from datetime import timedelta
+            extended_start = pd.Timestamp(start_date) - timedelta(days=7)
+            market_df = load_market_sentiment_df(
+                session, str(extended_start.date()), end_date, market,
+            )
+            if not market_df.empty:
+                from .feature_engineer import FeatureEngineer
+                market_df = FeatureEngineer._snap_to_trading_day(
+                    market_df, market,
+                    ["market_sentiment", "market_news_volume"],
+                )
+                for _, row in market_df.iterrows():
+                    d = str(row["date"])
+                    if d not in cache:
+                        cache[d] = {}
+                    for col in needed_market:
+                        if col in row.index and pd.notna(row[col]):
+                            cache[d][col] = float(row[col])
+
+        return cache
+
+    def _predict_with_cache(
+        self, feat: FeatureStore, model, scaler,
+        feature_columns: list[str], imputer, target_column: str,
+        external_cache: dict[str, dict], market: str,
+    ) -> dict | None:
+        """캐시된 외부 피처를 사용해 단일 피처 행 예측."""
+        from .feature_loader import EXTERNAL_FEATURE_NAMES
+
+        date_str = str(feat.date)
+        ext_data = external_cache.get(date_str, {})
+
+        # 피처 추출
+        feature_values = []
+        for col in feature_columns:
+            if col in EXTERNAL_FEATURE_NAMES:
+                val = ext_data.get(col)
+            else:
+                val = getattr(feat, col, None)
+            feature_values.append(float(val) if val is not None else np.nan)
+
+        X = np.array([feature_values])
+
+        # NaN 처리
+        if np.any(np.isnan(X)):
+            if imputer:
+                X = imputer.transform(X)
+            else:
+                X = np.nan_to_num(X, nan=0.0)
+
+        # 스케일링 + 예측
+        X_scaled = scaler.transform(X)
+        predicted_class = int(model.predict(X_scaled)[0])
+        proba = model.predict_proba(X_scaled)[0] if hasattr(model, "predict_proba") else None
+
+        probability_up = float(proba[1]) if proba is not None else (1.0 if predicted_class == 1 else 0.0)
+        probability_down = float(proba[0]) if proba is not None else (1.0 if predicted_class == 0 else 0.0)
+
+        signal, confidence = generate_signal(probability_up)
+
+        # 타겟 날짜 계산 (영업일 기준)
+        days_ahead = 1 if "1d" in target_column else 5
+        try:
+            from core.market_calendar import next_trading_day
+            current = feat.date
+            for _ in range(days_ahead):
+                current = next_trading_day(market, current)
+            target_date = current
+        except Exception:
+            target_date = feat.date + timedelta(days=days_ahead)
+
+        return {
+            "predicted_class": predicted_class,
+            "probability_up": round(probability_up, 4),
+            "probability_down": round(probability_down, 4),
+            "signal": signal,
+            "confidence": round(confidence, 4),
+            "target_date": target_date,
+        }
